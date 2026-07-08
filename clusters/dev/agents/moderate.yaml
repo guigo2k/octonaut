@@ -5,7 +5,7 @@ metadata:
   namespace: default
 spec:
   openrouter:
-    model: "poolside/laguna-m.1:free"
+    model: "openai/gpt-4o-mini"
     apiKey:
       secretKeyRef:
         name: octonaut-secret
