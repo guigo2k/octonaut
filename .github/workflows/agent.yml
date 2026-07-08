@@ -40,6 +40,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: agent/uv.lock
 
+      # The lifespan shutdown path (agent/api.py) always shells out to the
+      # real `kraken` binary to cancel open orders, even in tests that don't
+      # touch it directly -- same installer the Dockerfile's runtime image uses.
+      - name: Install kraken CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/krakenfx/kraken-cli/releases/latest/download/kraken-cli-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
       - run: uv sync --frozen
 
       - run: uv run ruff check .
