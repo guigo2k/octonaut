@@ -14,14 +14,24 @@ spec:
     targetRevision: 1.5.37
     helm:
       values: |
+        # Every credential below (and the initial org/project/user/API key)
+        # comes from the "langfuse-generated-secrets" Secret that
+        # scripts/generate-langfuse-secrets creates during Lima provisioning
+        # -- generated once per cluster, never committed. See that script for
+        # what each key holds, and the README's "Setting up Langfuse" section
+        # for how to read the generated login/API key back out.
         langfuse:
           salt:
-            value: "local-langfuse-salt"
+            secretKeyRef:
+              name: langfuse-generated-secrets
+              key: salt
 
           nextauth:
             url: http://langfuse.localhost
             secret:
-              value: "local-nextauth-secret"
+              secretKeyRef:
+                name: langfuse-generated-secrets
+                key: nextauth-secret
 
           logging:
             level: info
@@ -36,47 +46,65 @@ spec:
                   - path: /
                     pathType: ImplementationSpecific
 
+          # Headless init (https://langfuse.com/self-hosting/administration/headless-initialization):
+          # boots straight into a ready-to-use org/project/user instead of
+          # requiring a manual signup through the UI.
+          additionalEnv:
+            - name: LANGFUSE_INIT_ORG_ID
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-org-id}}
+            - name: LANGFUSE_INIT_ORG_NAME
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-org-name}}
+            - name: LANGFUSE_INIT_PROJECT_ID
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-id}}
+            - name: LANGFUSE_INIT_PROJECT_NAME
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-name}}
+            - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-public-key}}
+            - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-secret-key}}
+            - name: LANGFUSE_INIT_USER_EMAIL
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-user-email}}
+            - name: LANGFUSE_INIT_USER_NAME
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-user-name}}
+            - name: LANGFUSE_INIT_USER_PASSWORD
+              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-user-password}}
+
         postgresql:
           auth:
-            password: "langfuse-postgres"
-            postgresPassword: "langfuse-postgres-admin"
+            existingSecret: langfuse-generated-secrets
+            secretKeys:
+              userPasswordKey: postgres-password
+              adminPasswordKey: postgres-password
 
         clickhouse:
           auth:
-            password: "langfuse-clickhouse"
+            existingSecret: langfuse-generated-secrets
+            existingSecretKey: clickhouse-password
           replicaCount: 1
           zookeeper:
             enabled: false
 
         redis:
           auth:
-            password: "langfuse-redis"
+            existingSecret: langfuse-generated-secrets
+            existingSecretPasswordKey: redis-password
 
+        # `minio.auth.*` bootstraps the bundled MinIO server's own root
+        # credentials; `s3.auth.*` is langfuse-web's own S3 *client* config
+        # (a separate value the chart otherwise leaves empty -- see
+        # templates/_helpers.tpl's langfuse.s3Env). Both need to point at the
+        # same underlying username/password, so both reference the same keys.
         minio:
           auth:
-            rootUser: "minio"
-            rootPassword: "langfuse-minio-password"
+            existingSecret: langfuse-generated-secrets
+            rootUserSecretKey: minio-root-user
+            rootPasswordSecretKey: minio-root-password
 
-        # The `minio.auth.*` values above only bootstrap the bundled MinIO
-        # server's own root credentials -- they don't automatically wire the
-        # Langfuse app's own S3 client, which the chart otherwise leaves
-        # empty. Without this, langfuse-web fails every trace upload with a
-        # CredentialsProviderError. Per the chart's templates/_helpers.tpl
-        # (langfuse.s3Env / getS3ValueOrSecret), `s3.accessKeyId` and
-        # `s3.eventUpload.accessKeyId` etc. are a red herring here -- the
-        # actual fallback used for all three upload types (event/batch/media)
-        # when no per-type value is found is `s3.auth.*`. Using
-        # `s3.auth.existingSecret: langfuse-s3` (the same name the chart
-        # auto-generates) backfires: setting `existingSecret` makes the
-        # chart skip templating its own bootstrap Secret, and ArgoCD's
-        # `prune: true` then deletes the "orphaned" one -- verified live
-        # (`CreateContainerConfigError: secret "langfuse-s3" not found`).
-        # Plain inline values avoid that chicken-and-egg entirely, matching
-        # this file's existing style for every other credential above.
         s3:
           auth:
-            rootUser: "minio"
-            rootPassword: "langfuse-minio-password"
+            existingSecret: langfuse-generated-secrets
+            rootUserSecretKey: minio-root-user
+            rootPasswordSecretKey: minio-root-password
 
   destination:
     name: "in-cluster"

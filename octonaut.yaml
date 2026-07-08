@@ -46,6 +46,7 @@ provision:
       kubectl apply -n argocd --server-side=true --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
       kubectl patch -n argocd configmap argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
       kubectl patch -n argocd deployment argocd-repo-server --patch-file /opt/octonaut/clusters/dev/patch.yaml
+      bash /opt/octonaut/scripts/generate-langfuse-secrets
       kubectl apply -n argocd -f /opt/octonaut/clusters/dev/apps.yaml
 
   - mode: system
