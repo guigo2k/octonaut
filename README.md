@@ -369,3 +369,12 @@ re-applying an older CR.
   Grafana + VictoriaMetrics (metrics) + Loki (logs) + Tempo (traces) —
   more moving parts, but purpose-built, widely-adopted components instead
   of one opinionated all-in-one tool.
+
+## AI-use disclosure
+
+This project was built with substantial help from Claude Code (Anthropic) —
+implementation, Kubernetes/GitOps manifests, tests, and much of this
+README's prose were drafted with it, then iterated on and reviewed before
+landing. The architecture, safety invariants (the solvency guard, no
+leverage by design), and every design decision above are mine; Claude Code
+was the pair-programmer, not the architect.
