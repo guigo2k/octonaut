@@ -16,17 +16,23 @@ import kopf
 from kubernetes import client, config as k8s_config
 from kubernetes.client.exceptions import ApiException
 
-from octonaut_operator.postgres import build_default_postgres
+from octonaut_operator.postgres import build_default_postgres, build_postgres_network_policy
 from octonaut_operator.resources import (
     build_configmap,
     build_deployment,
     build_ingress,
+    build_network_policy,
     build_service,
 )
 
 logger = logging.getLogger(__name__)
 
 AGENT_IMAGE = os.environ.get("AGENT_IMAGE", "octonaut-agent:dev")
+
+# Off by default (dev: open networking). Set true in clusters that want a
+# default-deny NetworkPolicy per agent, with only DNS/HTTPS/its own
+# Postgres/Langfuse/ingress punched through -- see resources.build_network_policy.
+NETWORK_POLICY_ENABLED = os.environ.get("NETWORK_POLICY_ENABLED", "false").lower() == "true"
 
 
 @dataclass
@@ -95,7 +101,13 @@ def reconcile_tradingagent(
     service = build_service(name, namespace)
     ingress = build_ingress(name, namespace, spec.get("ingress"))
 
-    for obj in (configmap, deployment, service, *([ingress] if ingress else [])):
+    network_policy = None
+    if NETWORK_POLICY_ENABLED:
+        db_pod_labels = {"app": f"{name}-postgres"} if pg is not None else None
+        network_policy = build_network_policy(name, namespace, spec, db_pod_labels=db_pod_labels)
+
+    for obj in (configmap, deployment, service, *([ingress] if ingress else []),
+                *([network_policy] if network_policy else [])):
         kopf.adopt(obj, owner=owner)
 
     _apply(core_v1.create_namespaced_config_map, core_v1.patch_namespaced_config_map,
@@ -107,9 +119,16 @@ def reconcile_tradingagent(
     if ingress:
         _apply(networking_v1.create_namespaced_ingress, networking_v1.patch_namespaced_ingress,
                ingress["metadata"]["name"], namespace, ingress)
+    if network_policy:
+        _apply(networking_v1.create_namespaced_network_policy,
+               networking_v1.patch_namespaced_network_policy,
+               network_policy["metadata"]["name"], namespace, network_policy)
 
     if pg is not None:
-        for obj in (pg["secret"], pg["pvc"], pg["deployment"], pg["service"]):
+        pg_network_policy = build_postgres_network_policy(name, namespace) \
+            if NETWORK_POLICY_ENABLED else None
+        for obj in (pg["secret"], pg["pvc"], pg["deployment"], pg["service"],
+                    *([pg_network_policy] if pg_network_policy else [])):
             kopf.adopt(obj, owner=owner)
         _apply(core_v1.create_namespaced_secret, core_v1.patch_namespaced_secret,
                pg["secret"]["metadata"]["name"], namespace, pg["secret"])
@@ -120,6 +139,10 @@ def reconcile_tradingagent(
                pg["deployment"]["metadata"]["name"], namespace, pg["deployment"])
         _apply(core_v1.create_namespaced_service, core_v1.patch_namespaced_service,
                pg["service"]["metadata"]["name"], namespace, pg["service"])
+        if pg_network_policy:
+            _apply(networking_v1.create_namespaced_network_policy,
+                   networking_v1.patch_namespaced_network_policy,
+                   pg_network_policy["metadata"]["name"], namespace, pg_network_policy)
 
     patch.status["phase"] = "Running"
 

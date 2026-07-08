@@ -233,6 +233,31 @@ def test_reconcile_uses_per_cr_image_override():
         "ghcr.io/guigo2k/octonaut-agent:latest"
 
 
+def test_reconcile_skips_network_policy_when_disabled(monkeypatch):
+    monkeypatch.setattr("octonaut_operator.handlers.NETWORK_POLICY_ENABLED", False)
+    api = _RecordingApi()
+    clients = Clients(core_v1=api, apps_v1=api, networking_v1=api)
+    patch = _FakePatch()
+
+    reconcile_tradingagent(MINIMAL_SPEC, "minisaurus", "default", patch, clients=clients,
+                             owner=FAKE_OWNER)
+
+    assert "network_policy" not in {k for k, _ in api.created}
+
+
+def test_reconcile_applies_network_policy_for_agent_and_default_postgres_when_enabled(monkeypatch):
+    monkeypatch.setattr("octonaut_operator.handlers.NETWORK_POLICY_ENABLED", True)
+    api = _RecordingApi()
+    clients = Clients(core_v1=api, apps_v1=api, networking_v1=api)
+    patch = _FakePatch()
+
+    reconcile_tradingagent(MINIMAL_SPEC, "minisaurus", "default", patch, clients=clients,
+                             owner=FAKE_OWNER)
+
+    assert ("network_policy", "minisaurus") in api.created
+    assert ("network_policy", "minisaurus-postgres") in api.created
+
+
 def test_reconcile_skips_default_postgres_when_user_supplied():
     spec = {**MINIMAL_SPEC, "postgres": {"databaseUrl": {"secretKeyRef":
              {"name": "my-db", "key": "url"}}}}

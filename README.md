@@ -153,7 +153,7 @@ Architecture diagram above:
 
 ### 7. Log in to Coroot
 
-Open `http://coroot.localhost` — no login required. The Service Map shows
+Open `http://coroot.localhost` — create the admin user. The Service Map shows
 the whole cluster's topology, agents included:
 
 ![Coroot service map](docs/coroot-map.png)
@@ -220,8 +220,109 @@ kubectl apply -f operator/deploy/operator-deployment.yaml   # set AGENT_IMAGE fi
 cd agent && uv run pytest        # 69 tests; DB-backed tests need a reachable
                                     # Postgres+pgvector (TEST_DATABASE_URL env,
                                     # defaults to localhost:55433) or they skip
-cd operator && uv run pytest     # 29 tests; all pure/fake-client, no cluster
+cd operator && uv run pytest     # 40 tests; all pure/fake-client, no cluster
 ```
+
+## Operations
+
+### Environment separation
+
+Two environments, same GitOps pattern (`app-of-apps` Application per
+cluster, `automated: {prune, selfHeal}` everywhere):
+
+- **`clusters/dev`** — Lima k3s. ArgoCD syncs from `file:///opt/octonaut`
+  (mounted via `clusters/dev/patch.yaml`), `*.localhost`.
+- **`clusters/prod`** — ArgoCD syncs from `https://github.com/guigo2k/octonaut`,
+  `*.octonaut.orphic.sh`.
+
+`operator/deploy` (CRD, RBAC, operator Deployment) is shared: dev uses it as
+a plain manifest directory, prod overlays it with Kustomize to swap in
+`ghcr.io` images and flip `NETWORK_POLICY_ENABLED` on.
+
+`TradingAgent` CRs are `kubectl apply`-only in both environments, never
+GitOps'd (see Design decisions).
+
+### Runtime configuration and secret handling
+
+Two channels per agent: a ConfigMap for non-secret config (`strategy`, fixed
+`logging`), and env vars for credentials — always via `secretKeyRef`,
+enforced by the CRD schema, never inlined.
+
+Two Secret tiers:
+
+- **User-supplied:** `octonaut-secret` (OpenRouter key, created by hand) and
+  `langfuse-secrets` (auto-generated in dev by `scripts/langfuse-secrets`).
+- **Operator-provisioned:** the default Postgres password, generated once
+  and reused across reconciles so it never rotates under a live connection.
+
+No secret value ever appears in operator logs, CR status, or the ConfigMap.
+
+### Ingress/egress and network security
+
+Traefik is the single ingress point in both clusters; per-agent `Ingress` is
+optional. Prod terminates TLS via cert-manager + Cloudflare's
+`ClusterOriginIssuer` (`clusters/prod/apps/{cert-manager,origin-ca-issuer,tls}.yaml`)
+— one Cloudflare Origin CA `Certificate` per hostname, referenced by
+`secretName` from each Ingress/IngressRoute. Origin CA certs are only
+trusted by Cloudflare's edge, so this assumes `octonaut.orphic.sh` is
+proxied through Cloudflare (orange-clouded DNS) — grey-clouded/DNS-only
+would need a standard ACME `ClusterIssuer` instead. Dev stays plain HTTP —
+`*.localhost` never leaves the laptop.
+
+The operator supports a default-deny `NetworkPolicy` per `TradingAgent`,
+gated by `NETWORK_POLICY_ENABLED` (off in dev, on in prod via the Kustomize
+overlay):
+
+- **Egress:** DNS; outbound HTTPS for OpenRouter/Kraken (unscoped — those
+  addresses aren't known to the operator); its own Postgres (pod-scoped
+  when default-provisioned, port-only otherwise); Langfuse, if configured.
+- **Ingress:** only from Traefik's namespace, only when `spec.ingress` is
+  set.
+- The default Postgres pod only accepts ingress from its own agent.
+
+### Observability
+
+Today: Coroot (zero-instrumentation service map/logs/metrics/traces) and
+Langfuse (full LLM trace per tick: `gather` → `reason` → `guard` →
+`execute`). Every agent exposes `/health`, `/trades`, `/positions`,
+`/metrics`. None of this pages anyone yet.
+
+Should alert on: agent liveness/readiness failures, reasoning-step
+exceptions, rising solvency-guard rejections, LLM latency/error rate,
+default-Postgres disk usage, ArgoCD sync/health status.
+
+Should log: every trade decision (rationale, guard verdict, execute
+result — already structured JSON), plus every order the SIGTERM handler
+cancels.
+
+### Capacity, rollout, rollback, and failure modes
+
+**Capacity:** `TradingAgent` is single-replica by design (no HPA) — one
+always-on agent per strategy, not a scalable service. More capacity means
+more CRs, not more replicas. The operator is also single-replica (no leader
+election).
+
+**Rollout:** every merge to `main` auto-syncs via ArgoCD. CI publishes
+images on push to `main` (`latest` + `sha-<short>`), but the operator only
+re-renders on a CR's own create/update/resume — a new image doesn't trigger
+a rollout by itself; pin `sha-<short>` and re-apply the CR to roll one out
+deliberately.
+
+**Rollback:** no automated path. GitOps resources roll back via `git
+revert`; hand-applied `TradingAgent` CRs have no history — rollback means
+re-applying an older CR.
+
+**Failure modes:**
+
+- *Operator down:* existing agents keep running; nothing new reconciles
+  until it's back.
+- *Agent crash:* SIGTERM handler cancels open orders before SIGKILL; state
+  persists in Postgres, so the agent resumes rather than starting blind.
+- *Default Postgres loss:* single replica, no backup — real data-loss
+  exposure today.
+- *OpenRouter outage:* the `reason` step fails; no retry/alerting yet.
+- *Solvency guard:* can't fail open — a pure function gating every trade
+  regardless of the LLM's output.
 
 ## Design decisions & simplifications
 
@@ -253,11 +354,6 @@ cd operator && uv run pytest     # 29 tests; all pure/fake-client, no cluster
 
 ## Known gaps / what I'd do with more time
 
-- **SIGTERM order-cancellation path.** Ticker/status/balance parsing
-  (`agent/graph.py`) has been exercised against real live traffic; the "list
-  + cancel all open orders" SIGTERM path (`agent/kraken.py`) is still only
-  built from the CLI's documented examples, not yet confirmed against a
-  resting order in a live paper account.
 - **Reasoning quality** is observed via Langfuse traces, not unit-asserted —
   same tradeoff the reference agent made; a small eval harness would be a
   good next step.
@@ -269,3 +365,8 @@ cd operator && uv run pytest     # 29 tests; all pure/fake-client, no cluster
 - **Operator status detail.** `status.phase` is set to `Running` once
   resources are applied, not once the agent Pod is actually healthy — a
   proper implementation would watch the child Deployment's rollout status.
+- **Coroot as the only observability backend.** Great for a
+  zero-instrumentation demo, but a real production stack would swap it for
+  Grafana + VictoriaMetrics (metrics) + Loki (logs) + Tempo (traces) —
+  more moving parts, but purpose-built, widely-adopted components instead
+  of one opinionated all-in-one tool.

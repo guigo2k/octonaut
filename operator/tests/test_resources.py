@@ -4,6 +4,7 @@ from octonaut_operator.resources import (
     build_configmap,
     build_deployment,
     build_ingress,
+    build_network_policy,
     build_service,
 )
 
@@ -120,3 +121,60 @@ def test_ingress_renders_when_configured():
     backend = rule["http"]["paths"][0]["backend"]["service"]
     assert backend["name"] == "minisaurus"
     assert backend["port"]["number"] == 8000
+
+
+def test_network_policy_denies_ingress_when_no_ingress_configured():
+    policy = build_network_policy("minisaurus", "default", MINIMAL_SPEC, db_pod_labels=None)
+    assert policy["spec"]["podSelector"] == {"matchLabels": {"app": "minisaurus"}}
+    assert policy["spec"]["policyTypes"] == ["Ingress", "Egress"]
+    assert policy["spec"]["ingress"] == []
+
+
+def test_network_policy_allows_ingress_from_kube_system_when_configured():
+    spec = {**MINIMAL_SPEC, "ingress": {"className": "traefik", "host": "minisaurus.localhost"}}
+    policy = build_network_policy("minisaurus", "default", spec, db_pod_labels=None)
+    rule = policy["spec"]["ingress"][0]
+    assert rule["from"][0]["namespaceSelector"]["matchLabels"] == \
+        {"kubernetes.io/metadata.name": "kube-system"}
+    assert rule["ports"] == [{"protocol": "TCP", "port": 8000}]
+
+
+def test_network_policy_always_allows_dns_and_https_egress():
+    policy = build_network_policy("minisaurus", "default", MINIMAL_SPEC, db_pod_labels=None)
+    egress = policy["spec"]["egress"]
+    assert {"protocol": "UDP", "port": 53} in egress[0]["ports"]
+    assert {"protocol": "TCP", "port": 443} in egress[1]["ports"]
+    assert "to" not in egress[1]  # HTTPS is open-ended: OpenRouter/Kraken IPs aren't known
+
+
+def test_network_policy_scopes_postgres_egress_to_the_default_db_pod():
+    policy = build_network_policy("minisaurus", "default", MINIMAL_SPEC,
+                                    db_pod_labels={"app": "minisaurus-postgres"})
+    db_rule = next(r for r in policy["spec"]["egress"] if r["ports"] == [
+        {"protocol": "TCP", "port": 5432}])
+    assert db_rule["to"] == [{"podSelector": {"matchLabels": {"app": "minisaurus-postgres"}}}]
+
+
+def test_network_policy_allows_unscoped_postgres_egress_for_user_supplied_db():
+    spec = {**MINIMAL_SPEC, "postgres": {"databaseUrl": {"secretKeyRef":
+             {"name": "my-db", "key": "url"}}}}
+    policy = build_network_policy("minisaurus", "default", spec, db_pod_labels=None)
+    db_rule = next(r for r in policy["spec"]["egress"] if r["ports"] == [
+        {"protocol": "TCP", "port": 5432}])
+    assert "to" not in db_rule
+
+
+def test_network_policy_scopes_langfuse_egress_to_its_namespace_and_port():
+    spec = {
+        **MINIMAL_SPEC,
+        "langfuse": {
+            "address": "http://langfuse-web.langfuse.svc.cluster.local:3000",
+            "publicKey": {"secretKeyRef": {"name": "lf-secret", "key": "public-key"}},
+            "secretKey": {"secretKeyRef": {"name": "lf-secret", "key": "secret-key"}},
+        },
+    }
+    policy = build_network_policy("minisaurus", "default", spec, db_pod_labels=None)
+    lf_rule = next(r for r in policy["spec"]["egress"] if r["ports"] == [
+        {"protocol": "TCP", "port": 3000}])
+    assert lf_rule["to"] == [{"namespaceSelector":
+        {"matchLabels": {"kubernetes.io/metadata.name": "langfuse"}}}]

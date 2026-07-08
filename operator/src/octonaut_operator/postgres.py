@@ -96,3 +96,25 @@ def build_default_postgres(name: str, namespace: str, *, password: str | None = 
         "service": service,
         "database_url_secret_ref": {"name": secret_name, "key": "DATABASE_URL"},
     }
+
+
+def build_postgres_network_policy(name: str, namespace: str) -> dict:
+    """Default-deny NetworkPolicy for the default Postgres pod: only the
+    agent it belongs to may reach it, on the Postgres port, and it never
+    needs to initiate outbound traffic of its own.
+    """
+    pg_name = f"{name}-postgres"
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {"name": pg_name, "namespace": namespace},
+        "spec": {
+            "podSelector": {"matchLabels": {"app": pg_name}},
+            "policyTypes": ["Ingress", "Egress"],
+            "ingress": [{
+                "from": [{"podSelector": {"matchLabels": {"app": name}}}],
+                "ports": [{"protocol": "TCP", "port": _PG_PORT}],
+            }],
+            "egress": [],
+        },
+    }

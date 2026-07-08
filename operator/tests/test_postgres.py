@@ -1,4 +1,4 @@
-from octonaut_operator.postgres import build_default_postgres
+from octonaut_operator.postgres import build_default_postgres, build_postgres_network_policy
 
 
 def test_database_url_points_at_the_provisioned_service():
@@ -48,3 +48,12 @@ def test_pvc_and_service_are_named_after_the_postgres_deployment():
     assert result["pvc"]["metadata"]["name"] == "minisaurus-postgres"
     assert result["service"]["metadata"]["name"] == "minisaurus-postgres"
     assert result["service"]["spec"]["selector"] == {"app": "minisaurus-postgres"}
+
+
+def test_network_policy_only_allows_ingress_from_its_own_agent():
+    policy = build_postgres_network_policy("minisaurus", "default")
+    assert policy["spec"]["podSelector"] == {"matchLabels": {"app": "minisaurus-postgres"}}
+    rule = policy["spec"]["ingress"][0]
+    assert rule["from"] == [{"podSelector": {"matchLabels": {"app": "minisaurus"}}}]
+    assert rule["ports"] == [{"protocol": "TCP", "port": 5432}]
+    assert policy["spec"]["egress"] == []

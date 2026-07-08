@@ -23,3 +23,10 @@ spec:
             # Deployment when the CR doesn't set spec.image itself.
             - name: AGENT_IMAGE
               value: octonaut-agent:dev
+            # Off here (dev: open networking). Prod flips this to "true" via
+            # its Kustomize overlay -- see clusters/prod/apps/octonaut-operator.yaml.
+            - name: NETWORK_POLICY_ENABLED
+              value: "false"
+
+
+# --
