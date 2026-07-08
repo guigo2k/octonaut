@@ -48,7 +48,7 @@ def test_make_handler_returns_none_without_credentials(monkeypatch):
 def test_make_handler_returns_handler_with_metadata_when_configured(monkeypatch):
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
-    monkeypatch.setenv("LANGFUSE_ADDRESS", "http://localhost:1")
+    monkeypatch.setenv("LANGFUSE_HOST", "http://localhost:1")
     handler = make_handler(run_id=42)
     assert handler is not None
     assert handler.metadata == {"run_id": 42}

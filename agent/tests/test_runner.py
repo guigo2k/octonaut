@@ -99,7 +99,7 @@ def test_run_once_persists_nothing_when_rejected(engine):
 def test_run_once_attaches_langfuse_callback_when_configured(engine, monkeypatch):
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
-    monkeypatch.setenv("LANGFUSE_ADDRESS", "http://localhost:1")
+    monkeypatch.setenv("LANGFUSE_HOST", "http://localhost:1")
     kraken_fn, _ = _stub_kraken()
     seen_configs = []
 

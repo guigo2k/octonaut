@@ -1,4 +1,4 @@
-# Octonaut
+# 🐙 Octonaut
 
 A minimal AI trading agent (`agent/`) and the Kubernetes operator that
 deploys it (`operator/`). Fictional use case: a single always-on agent that
@@ -34,7 +34,7 @@ Two independent, separately-deployable pieces:
 │        -> solvency guard (deterministic, no LLM) │
 │        -> execute (kraken paper buy/sell)        │
 │   -> persist Trade (ledger) + TradeMemory (RAG)  │
-└──────────┬────────────────────────────────────────┘
+└──────────┬───────────────────────────────────────┘
            │ DATABASE_URL (postgres+pgvector: ledger + trade memory)
            │ OPENROUTER_* (LLM)
            │ LANGFUSE_* (optional: traces)
@@ -49,7 +49,19 @@ held size vs. sell size) is the sole gate before anything is placed. "Never
 use leverage" is enforced structurally — no leverage/margin tool exists for
 the LLM to call, spot paper trading only.
 
-## Bootstrapping a local cluster
+## Getting started
+
+Everything below runs on a laptop, entirely local — no cloud account, no
+registry, no manual signup for anything.
+
+### 1. Install Lima
+
+```bash
+brew install lima
+limactl --version
+```
+
+### 2. Start the instance
 
 `octonaut.yaml` is a self-contained Lima config — a fresh k3s + ArgoCD stack,
 independent of any other cluster. No manual image loading: two systemd units
@@ -61,7 +73,7 @@ limactl start --name octonaut --param pwd=$(pwd) ./octonaut.yaml
 ```
 
 Give it a couple of minutes for k3s, ArgoCD, and the first image builds to
-settle, then:
+settle, then point `kubectl` at it:
 
 ```bash
 export KUBECONFIG=$(limactl list octonaut --format 'unix://{{.Dir}}/copied-from-guest/kubeconfig.yaml')
@@ -70,91 +82,96 @@ kubectl get application -n argocd   # all should show Synced/Healthy
 
 Three UIs come up on `*.localhost` (Traefik ingress, no `/etc/hosts` edits
 needed on macOS): `argocd.localhost`, `coroot.localhost`, `langfuse.localhost`.
-ArgoCD's admin password:
+
+### 3. Get the ArgoCD password
 
 ```bash
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
 ```
 
-Only the operator itself is ArgoCD-managed (`clusters/dev/apps/
-octonaut-operator.yaml`); `TradingAgent` CRs are applied by hand — see
-"Deploying the example agents" below.
+Open `http://argocd.localhost`, log in as `admin` with that password. Only
+the operator itself is ArgoCD-managed (`clusters/dev/apps/
+octonaut-operator.yaml`) — everything else you see here (`coroot`, `langfuse`,
+`kube-state-metrics`) is bootstrap infrastructure. All six apps should be
+Synced/Healthy within a couple of minutes of cluster start:
 
-### Setting up Langfuse
+![ArgoCD Applications](docs/argocd-apps.png)
 
-Fully automated — no signup, no clicking through Settings → API Keys.
-`scripts/langfuse-secrets` runs during provisioning (before ArgoCD
-syncs anything) and creates one `langfuse-secrets` Secret in the
-`langfuse` namespace holding random passwords for every backing service
-*and* a ready-made org/project/user/API-key pair, via Langfuse's
-[headless initialization](https://langfuse.com/self-hosting/administration/headless-initialization)
-(`LANGFUSE_INIT_*` env vars, wired in via `clusters/dev/apps/langfuse.yaml`'s
-`langfuse.additionalEnv`). `langfuse.yaml` has no literal credentials left in
-it at all — every value is `secretKeyRef`/`existingSecret` against that one
-Secret. It's idempotent: re-running the script on an existing cluster is a
-no-op if the Secret is already there.
+### 4. Create the secret with your OpenRouter key
 
-To retrieve the generated login (to use the UI) or API keys (to point the
-agent's `LANGFUSE_*` env vars / a `TradingAgent`'s `spec.langfuse` at):
-
-```bash
-kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-email}' | base64 -d; echo
-kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-password}' | base64 -d; echo
-kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-project-public-key}' | base64 -d; echo
-kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-project-secret-key}' | base64 -d; echo
-```
-
-Note: the Secret is only generated once per cluster (on a namespace that
-doesn't already have it) — headless init itself is also first-boot-only, so
-deleting and recreating the Secret against an already-initialized Postgres
-volume won't retroactively create a second org/project.
-
-### Deploying the example agents
-
-All three `clusters/dev/agents/*.yaml` CRs deploy into the `default`
-namespace. They share two secrets: `octonaut-secret` (your OpenRouter key —
-the one credential that's genuinely external) and `langfuse-secret` (the
-Langfuse project keys, already created for you by
-`scripts/langfuse-secrets` during provisioning):
+The only credential you need to supply — everything else (Langfuse's org,
+project, user, and API keys) is generated automatically during provisioning
+by `scripts/langfuse-secrets`, no signup or UI clicking required.
 
 ```bash
 kubectl create secret generic octonaut-secret \
   --from-literal=openrouter-key=$OPENROUTER_API_KEY \
   --namespace default
-
-kubectl apply -f clusters/dev/agents/
 ```
 
-Each provisions its own default Postgres+pgvector (none of the examples set
-`spec.postgres`). Watch them come up:
+### 5. Deploy the agents
+
+`TradingAgent` CRs are applied by hand, not GitOps'd — this keeps ArgoCD
+scoped to the platform (the operator), not every trading strategy someone
+spins up. Three examples ship ready to go:
+
+| Example | Strategy | Ticker | Posture |
+|---|---|---|---|
+| `conservative.yaml` | DCA | BTCUSD | small, regular buys; skip rather than chase |
+| `moderate.yaml` | GRID | ETHUSD | grid around current price, moderate drawdown tolerance |
+| `aggressive.yaml` | TWAP | SOLUSD | momentum-aware execution, tolerates overpaying into a spike |
 
 ```bash
+kubectl apply -f clusters/dev/agents/
 kubectl get tradingagent -n default
 kubectl get pods -n default
 ```
 
-## Running the agent standalone
+Each provisions its own default Postgres+pgvector (none of the examples set
+`spec.postgres`). The CRD's `ingress` / `resources` / `langfuse` / `postgres`
+fields are all optional — see the commented-out examples in each file.
 
-Requires the `kraken` CLI on `PATH` ([install](https://github.com/krakenfx/kraken-cli)) and a reachable Postgres with the `vector` extension available (`pgvector/pgvector:pg17` works).
+### 6. Log in to Langfuse
 
-Required env vars:
+Retrieve the generated login:
 
-| Var | Purpose |
-|---|---|
-| `OPENROUTER_MODEL` | Model id passed to OpenRouter, e.g. `poolside/laguna-m.1` |
-| `OPENROUTER_API_KEY` | Your [OpenRouter](https://openrouter.ai/) API key |
-| `DATABASE_URL` | `postgresql+psycopg://user:pass@host:5432/db` |
+```bash
+kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-email}' | base64 -d; echo
+kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-password}' | base64 -d; echo
+```
 
-Optional (all three must be set together to enable Langfuse tracing):
+Open `http://langfuse.localhost` and log in. You'll see live traces from all
+three agents on the Home dashboard:
 
-| Var | Purpose |
-|---|---|
-| `LANGFUSE_ADDRESS` | Langfuse instance base URL |
-| `LANGFUSE_PUBLIC_KEY` | Langfuse public key |
-| `LANGFUSE_SECRET_KEY` | Langfuse secret key |
+![Langfuse home dashboard](docs/langfuse-home.png)
 
-Also: `AGENT_CONFIG` (default `/etc/agent/config.yaml`), `AGENT_TICK_SECONDS`
-(default `300`).
+Click into any trace to see the full reasoning graph — `gather` → `reason`
+(the ReAct loop, tool calls and all) → `guard` → `execute`, matching the
+Architecture diagram above:
+
+![A single agent trace](docs/langfuse-trace.png)
+
+### 7. Log in to Coroot
+
+Open `http://coroot.localhost` — no login required. The Service Map shows
+the whole cluster's topology, agents included:
+
+![Coroot service map](docs/coroot-map.png)
+
+Click into any agent for its logs, metrics, and traces:
+
+![Coroot per-agent view](docs/coroot-agent.png)
+
+### 8. Running the agent standalone
+
+No Kubernetes needed — just the `kraken` CLI on `PATH`
+([install](https://github.com/krakenfx/kraken-cli)) and a reachable Postgres
+with the `vector` extension (`pgvector/pgvector:pg17` works).
+
+Required env vars: `OPENROUTER_MODEL`, `OPENROUTER_API_KEY`, `DATABASE_URL`.
+Optional (all three together enable Langfuse tracing): `LANGFUSE_ADDRESS`,
+`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`. Also: `AGENT_CONFIG` (default
+`/etc/agent/config.yaml`), `AGENT_TICK_SECONDS` (default `300`).
 
 `config.yaml`:
 
@@ -177,7 +194,7 @@ cd agent
 uv sync
 AGENT_CONFIG=./config.yaml \
 DATABASE_URL=postgresql+psycopg://postgres:pw@localhost:55433/postgres \
-OPENROUTER_MODEL=poolside/laguna-m.1 \
+OPENROUTER_MODEL=openai/gpt-4o-mini \
 OPENROUTER_API_KEY=sk-... \
 uv run python -m agent.main
 ```
@@ -186,11 +203,10 @@ uv run python -m agent.main
 `SIGTERM` (e.g. `kubectl delete pod`, or Ctrl-C) cancels every open paper
 order before the process exits.
 
-## Running the operator on an existing cluster
-
-Not using `octonaut.yaml`? Install the operator by hand instead (build/push
-`octonaut-agent`/`octonaut-operator` images to wherever your cluster can
-pull from first):
+Not using `octonaut.yaml`? Install the operator on any existing cluster by
+hand (build/push `octonaut-agent`/`octonaut-operator` images to wherever your
+cluster can pull from first), then apply the CRD, RBAC, and operator
+Deployment directly:
 
 ```bash
 kubectl apply -f operator/deploy/crd.yaml
@@ -198,97 +214,14 @@ kubectl apply -f operator/deploy/rbac.yaml
 kubectl apply -f operator/deploy/operator-deployment.yaml   # set AGENT_IMAGE first
 ```
 
-Then follow "Setting up Langfuse" / "Deploying the example agents" above —
-`clusters/dev/agents/` has three ready-to-adapt CRs, one per strategy type
-and risk posture, all in the `default` namespace:
-
-| Example | Strategy | Ticker | Posture |
-|---|---|---|---|
-| `conservative.yaml` | DCA | BTCUSD | small, regular buys; skip rather than chase |
-| `moderate.yaml` | GRID | ETHUSD | grid around current price, moderate drawdown tolerance |
-| `aggressive.yaml` | TWAP | SOLUSD | momentum-aware execution, tolerates overpaying into a spike |
-
-The CRD's `ingress` / `resources` / `langfuse` / `postgres` blocks are all
-optional (see the commented-out examples in each file). Leaving `postgres`
-unset makes the operator provision its own small Postgres+pgvector
-`Deployment`/`PVC`/`Service`/`Secret` for you — required for these examples to
-deploy anything at all, since none of them set `postgres`.
-
-## Testing
+### 9. Running tests
 
 ```bash
-cd agent && uv run pytest        # 61 tests; DB-backed tests need a reachable
+cd agent && uv run pytest        # 69 tests; DB-backed tests need a reachable
                                     # Postgres+pgvector (TEST_DATABASE_URL env,
                                     # defaults to localhost:55433) or they skip
 cd operator && uv run pytest     # 29 tests; all pure/fake-client, no cluster
 ```
-
-## Live verification (Lima `krak`, kraktopus's existing k3s cluster)
-
-Deployed for real: operator installed via `kubectl apply`, images built with
-`buildah` inside the Lima VM and imported into k3s's containerd, sample
-`TradingAgent` reconciled into a running agent + default Postgres+pgvector.
-Confirmed live:
-
-- `/health` `/trades` `/positions` `/metrics` all serve real data.
-- A real OpenRouter LLM call (via `openai/gpt-4o-mini` — see model note below)
-  reasoned over live `kraken ticker`/`ohlc` tool calls and correctly recalled
-  an earlier trade from pgvector trade memory in its own rationale.
-- A forced `buy` proposal round-tripped through the solvency guard into a
-  real `kraken paper buy` order, visible in `/trades` and independently
-  confirmed via `kraken paper status`.
-- `SIGTERM` (pod delete) cancelled a real resting limit order before exit,
-  confirmed via captured shutdown logs (`cancelled_order_ids`).
-- Deleting the `TradingAgent` CR garbage-collected every owned resource
-  (Deployments, Services, ConfigMap, default-Postgres Secret/PVC) via owner
-  references, leaving only the independently-created `<name>-secret`.
-- Real Langfuse traces are visible for live ticks, correctly tagged with a
-  per-pod-lifetime `sessionId` and a per-strategy `userId` (see "Design
-  decisions" below).
-
-Three real bugs were found and fixed by this live pass (not caught by unit
-tests, since they depend on the real CLI/SDK behavior):
-
-1. **Langfuse was never actually wired into LLM calls.** `make_handler`/
-   `current_trace_id` existed and were tested, but nothing attached the
-   callback handler to the graph invocation — LangGraph only forwards
-   `config` (callbacks/metadata) to node functions that declare a second
-   `config` parameter. Fixed in `graph.make_reason_fn` + `runner.run_once`.
-2. **`kraken paper orders`'s real shape** is `{"count", "mode",
-   "open_orders": [...]}`, not a bare list — `close_all_open_orders` silently
-   cancelled nothing against the real CLI. Fixed, with a regression test
-   using the real shape.
-3. **The paper account was only initialized lazily on the first scheduler
-   tick** (up to `AGENT_TICK_SECONDS` after boot), not at startup — fixed by
-   calling `ensure_paper` eagerly in `main()`.
-
-A second live pass, after real traffic surfaced three more issues, found and
-fixed:
-
-4. **Uvicorn's own `uvicorn`/`uvicorn.access`/`uvicorn.error` loggers
-   attached their own plain-text handlers**, bypassing `configure_logging`'s
-   JSON formatter entirely — health-check access logs showed up as bare text
-   lines interleaved with our structured ones. Fixed with
-   `observability.uvicorn_log_config()`, passed to `uvicorn.run(...,
-   log_config=...)`, which points those loggers back at the root logger.
-5. **Langfuse's `Sessions`/`Users` views were empty** — nothing tagged a
-   trace's `sessionId`/`userId`. Fixed by generating one session id per pod
-   lifetime (`main.py`) and tagging every trace's user as `<ticker>-<type>`
-   (`runner.run_once`), via the SDK's `langfuse_session_id`/`langfuse_user_id`
-   metadata keys.
-6. **Langfuse trace persistence itself** was previously blocked by a
-   pre-existing gap in the shared Langfuse deployment's S3/MinIO credential
-   wiring (`kraktopus/deploy/dev/apps/langfuse.yaml`) — fixed upstream in that
-   repo (`s3.auth.rootUser`/`rootPassword`, see that repo's commit history);
-   real traces now persist and are queryable via Langfuse's API/UI.
-
-**Model note:** `poolside/laguna-m.1:free` (the example model in
-`clusters/dev/agents/*.yaml`) intermittently 502s at the upstream provider on
-OpenRouter, specifically on tool-bound/structured-output requests (plain
-chat completions succeed) — an external provider issue, not a code issue.
-Live LLM reasoning was verified end-to-end with both `poolside/laguna-m.1:free`
-and `openai/gpt-4o-mini`; swap `spec.openrouter.model` if the former is
-misbehaving.
 
 ## Design decisions & simplifications
 
@@ -320,10 +253,11 @@ misbehaving.
 
 ## Known gaps / what I'd do with more time
 
-- **Kraken CLI shapes.** Ticker/status/balance parsing (`agent/graph.py`) and
-  the "list + cancel all open orders" SIGTERM path (`agent/kraken.py`) are
-  built from the real CLI's documented examples, not exercised against a live
-  paper account yet — first thing to confirm in live verification.
+- **SIGTERM order-cancellation path.** Ticker/status/balance parsing
+  (`agent/graph.py`) has been exercised against real live traffic; the "list
+  + cancel all open orders" SIGTERM path (`agent/kraken.py`) is still only
+  built from the CLI's documented examples, not yet confirmed against a
+  resting order in a live paper account.
 - **Reasoning quality** is observed via Langfuse traces, not unit-asserted —
   same tradeoff the reference agent made; a small eval harness would be a
   good next step.

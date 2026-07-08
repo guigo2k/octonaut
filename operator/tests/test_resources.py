@@ -55,7 +55,7 @@ def test_deployment_omits_langfuse_env_when_not_configured():
                             database_url_secret_ref=DB_SECRET_REF)
     container = dep["spec"]["template"]["spec"]["containers"][0]
     names = {e["name"] for e in container["env"]}
-    assert "LANGFUSE_ADDRESS" not in names
+    assert "LANGFUSE_HOST" not in names
     assert "LANGFUSE_PUBLIC_KEY" not in names
     assert "LANGFUSE_SECRET_KEY" not in names
 
@@ -74,7 +74,7 @@ def test_deployment_wires_langfuse_env_when_configured():
     container = dep["spec"]["template"]["spec"]["containers"][0]
     env_by_name = {e["name"]: e for e in container["env"]}
 
-    assert env_by_name["LANGFUSE_ADDRESS"]["value"] == \
+    assert env_by_name["LANGFUSE_HOST"]["value"] == \
         "http://langfuse-web.langfuse.svc.cluster.local:3000"
     assert env_by_name["LANGFUSE_PUBLIC_KEY"]["valueFrom"]["secretKeyRef"] == {
         "name": "lf-secret", "key": "public-key",

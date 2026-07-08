@@ -78,9 +78,8 @@ def make_handler(run_id: int | str) -> CallbackHandler | None:
     """Build a Langfuse LangChain callback handler for a single run.
 
     Returns ``None`` when ``LANGFUSE_PUBLIC_KEY``/``LANGFUSE_SECRET_KEY`` aren't
-    set -- tracing is fully optional. ``LANGFUSE_ADDRESS`` (this project's env
-    var name, not the SDK's own ``LANGFUSE_HOST``) is passed explicitly to the
-    ``Langfuse`` client's ``host=`` kwarg, which registers it as the active
+    set -- tracing is fully optional. ``LANGFUSE_HOST`` is passed explicitly to
+    the ``Langfuse`` client's ``host=`` kwarg, which registers it as the active
     singleton instance that ``CallbackHandler`` then reuses via
     ``langfuse.get_client()`` -- no env var renaming needed.
     """
@@ -89,7 +88,7 @@ def make_handler(run_id: int | str) -> CallbackHandler | None:
     if not public_key or not secret_key:
         return None
     Langfuse(public_key=public_key, secret_key=secret_key,
-              host=os.environ.get("LANGFUSE_ADDRESS"))
+              host=os.environ.get("LANGFUSE_HOST"))
     handler = CallbackHandler(public_key=public_key)
     handler.metadata = {"run_id": run_id}
     return handler

@@ -39,7 +39,7 @@ def build_deployment(
 
     langfuse = spec.get("langfuse")
     if langfuse:
-        env.append({"name": "LANGFUSE_ADDRESS", "value": langfuse["address"]})
+        env.append({"name": "LANGFUSE_HOST", "value": langfuse["address"]})
         env.append(_secret_env("LANGFUSE_PUBLIC_KEY", langfuse["publicKey"]["secretKeyRef"]))
         env.append(_secret_env("LANGFUSE_SECRET_KEY", langfuse["secretKey"]["secretKeyRef"]))
 
