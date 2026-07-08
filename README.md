@@ -82,26 +82,45 @@ octonaut-operator.yaml`); `TradingAgent` CRs are applied by hand — see
 
 ### Setting up Langfuse
 
-Self-hosted Langfuse has no separate admin-bootstrap step — the first
-account you create becomes the instance's first user.
+Fully automated — no signup, no clicking through Settings → API Keys.
+`scripts/generate-langfuse-secrets` runs during provisioning (before ArgoCD
+syncs anything) and creates one `langfuse-generated-secrets` Secret in the
+`langfuse` namespace holding random passwords for every backing service
+*and* a ready-made org/project/user/API-key pair, via Langfuse's
+[headless initialization](https://langfuse.com/self-hosting/administration/headless-initialization)
+(`LANGFUSE_INIT_*` env vars, wired in via `clusters/dev/apps/langfuse.yaml`'s
+`langfuse.additionalEnv`). `langfuse.yaml` has no literal credentials left in
+it at all — every value is `secretKeyRef`/`existingSecret` against that one
+Secret. It's idempotent: re-running the script on an existing cluster is a
+no-op if the Secret is already there.
 
-1. Visit `http://langfuse.localhost` and sign up.
-2. Create an organization (any name), then a project inside it (e.g.
-   `octonaut`).
-3. **Settings → API Keys → Create new API key.** Copy the public key
-   (`pk-lf-...`) and secret key (`sk-lf-...`) now — the secret key is shown
-   exactly once.
+To retrieve the generated login (to use the UI) or API keys (to point the
+agent's `LANGFUSE_*` env vars / a `TradingAgent`'s `spec.langfuse` at):
+
+```bash
+kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-user-email}' | base64 -d; echo
+kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-user-password}' | base64 -d; echo
+kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-public-key}' | base64 -d; echo
+kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-secret-key}' | base64 -d; echo
+```
+
+Note: the Secret is only generated once per cluster (on a namespace that
+doesn't already have it) — headless init itself is also first-boot-only, so
+deleting and recreating the Secret against an already-initialized Postgres
+volume won't retroactively create a second org/project.
 
 ### Deploying the example agents
 
 All three `examples/*.yaml` CRs deploy into the `default` namespace and
-share one secret:
+share one secret. `openrouter-key` is the one credential that's genuinely
+external (bring your own [OpenRouter](https://openrouter.ai/) key); the two
+Langfuse values come straight out of the generated secret above:
 
 ```bash
 kubectl create secret generic octonaut-secret \
   --from-literal=openrouter-key=sk-or-... \
-  --from-literal=langfuse-public-key=pk-lf-... \
-  --from-literal=langfuse-secret-key=sk-lf-... \
+  --from-literal=langfuse-public-key="$(kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-public-key}' | base64 -d)" \
+  --from-literal=langfuse-secret-key="$(kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-secret-key}' | base64 -d)" \
   -n default
 
 kubectl apply -f examples/
