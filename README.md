@@ -140,8 +140,7 @@ kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-em
 kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-password}' | base64 -d; echo
 ```
 
-Open `http://langfuse.localhost` and log in. You'll see live traces from all
-three agents on the Home dashboard:
+Open `http://langfuse.localhost` and log in. After a few minutes, you'll see live traces from all three agents on the Home dashboard:
 
 ![Langfuse home dashboard](docs/langfuse-home.png)
 

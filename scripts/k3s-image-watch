@@ -63,7 +63,7 @@ while true; do
     ! -path '*/build/*' \
     ! -path '*/*.pyc' \
     | sort \
-    | entr -d -n sh -c 'echo changed'
+    | entr -p -d -n sh -c 'echo changed'
 
   echo "Change detected in ${SRC_DIR}"
 

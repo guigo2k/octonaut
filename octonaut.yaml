@@ -17,6 +17,13 @@ base: template:_images/ubuntu-lts
 cpus: 4
 memory: "16GiB"
 
+# Without this, host-side edits under a writable mount don't generate
+# inotify events in the guest -- entr (build-agent/build-operator.service)
+# would just block forever waiting for changes that never arrive. Needs
+# Lima >= 0.21.0 (already implied by minimumLimaVersion above) and only
+# takes effect on `writable: true` mounts.
+mountInotify: true
+
 mounts:
   - location: "~"
   - location: "{{.Param.pwd}}"
