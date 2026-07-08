@@ -1,5 +1,6 @@
 import json
 import logging
+import logging.config
 
 import pytest
 
@@ -7,6 +8,7 @@ from agent.observability import (
     configure_logging,
     current_trace_id,
     make_handler,
+    uvicorn_log_config,
 )
 
 
@@ -61,3 +63,21 @@ def test_current_trace_id_reads_last_trace_id_attribute():
         last_trace_id = "trace-abc"
 
     assert current_trace_id(Stub()) == "trace-abc"
+
+
+def test_uvicorn_log_config_disables_own_handlers_for_propagation():
+    cfg = uvicorn_log_config()
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        assert cfg["loggers"][name]["handlers"] == []
+        assert cfg["loggers"][name]["propagate"] is True
+
+
+def test_uvicorn_loggers_propagate_through_configured_root_formatter(capsys):
+    configure_logging(level="INFO", fmt="json")
+    logging.config.dictConfig(uvicorn_log_config())
+
+    logging.getLogger("uvicorn.access").info('127.0.0.1:0 - "GET /health HTTP/1.1" 200')
+
+    out = capsys.readouterr().out.strip()
+    payload = json.loads(out)
+    assert payload["logger"] == "uvicorn.access"

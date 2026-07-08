@@ -48,6 +48,32 @@ def configure_logging(level: str = "INFO", fmt: str = "json") -> None:
     root.setLevel(level)
 
 
+def uvicorn_log_config() -> dict:
+    """A ``uvicorn`` ``log_config`` that skips its own handler setup.
+
+    Uvicorn otherwise attaches its own (non-JSON, non-propagating) handlers
+    to the ``uvicorn``/``uvicorn.access``/``uvicorn.error`` loggers, which
+    bypasses whatever ``configure_logging`` set up on the root logger --
+    that's why access logs showed up as plain text lines alongside our JSON
+    ones. Declaring no handlers here and ``propagate: True`` sends those
+    records up to the root logger's handler instead, so they pick up
+    whichever format (json/text) ``configure_logging`` was given.
+    """
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {"format": "%(message)s"},
+            "access": {"format": "%(message)s"},
+        },
+        "loggers": {
+            "uvicorn": {"handlers": [], "propagate": True},
+            "uvicorn.error": {"handlers": [], "propagate": True},
+            "uvicorn.access": {"handlers": [], "propagate": True},
+        },
+    }
+
+
 def make_handler(run_id: int | str) -> CallbackHandler | None:
     """Build a Langfuse LangChain callback handler for a single run.
 
