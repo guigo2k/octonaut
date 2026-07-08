@@ -1,0 +1,22 @@
+[Unit]
+Description=Watch and rebuild Agent local image
+Wants=k3s.service
+After=k3s.service
+
+[Service]
+Type=simple
+User=root
+
+Environment=SRC_DIR=/opt/octonaut/agent
+Environment=IMAGE_NAME=docker.io/library/octonaut-agent:dev
+Environment=OUT_DIR=/var/lib/rancher/k3s/agent/images
+Environment=DEBOUNCE_SECONDS=1
+
+ExecStart=/usr/local/bin/k3s-image-watch
+
+Restart=always
+RestartSec=2
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

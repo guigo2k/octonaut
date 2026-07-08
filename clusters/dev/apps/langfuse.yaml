@@ -1,0 +1,91 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: langfuse
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://langfuse.github.io/langfuse-k8s
+    chart: langfuse
+    targetRevision: 1.5.37
+    helm:
+      values: |
+        langfuse:
+          salt:
+            value: "local-langfuse-salt"
+
+          nextauth:
+            url: http://langfuse.localhost
+            secret:
+              value: "local-nextauth-secret"
+
+          logging:
+            level: info
+            format: json
+
+          ingress:
+            enabled: true
+            className: traefik
+            hosts:
+              - host: langfuse.localhost
+                paths:
+                  - path: /
+                    pathType: ImplementationSpecific
+
+        postgresql:
+          auth:
+            password: "langfuse-postgres"
+            postgresPassword: "langfuse-postgres-admin"
+
+        clickhouse:
+          auth:
+            password: "langfuse-clickhouse"
+          replicaCount: 1
+          zookeeper:
+            enabled: false
+
+        redis:
+          auth:
+            password: "langfuse-redis"
+
+        minio:
+          auth:
+            rootUser: "minio"
+            rootPassword: "langfuse-minio-password"
+
+        # The `minio.auth.*` values above only bootstrap the bundled MinIO
+        # server's own root credentials -- they don't automatically wire the
+        # Langfuse app's own S3 client, which the chart otherwise leaves
+        # empty. Without this, langfuse-web fails every trace upload with a
+        # CredentialsProviderError. Per the chart's templates/_helpers.tpl
+        # (langfuse.s3Env / getS3ValueOrSecret), `s3.accessKeyId` and
+        # `s3.eventUpload.accessKeyId` etc. are a red herring here -- the
+        # actual fallback used for all three upload types (event/batch/media)
+        # when no per-type value is found is `s3.auth.*`. Using
+        # `s3.auth.existingSecret: langfuse-s3` (the same name the chart
+        # auto-generates) backfires: setting `existingSecret` makes the
+        # chart skip templating its own bootstrap Secret, and ArgoCD's
+        # `prune: true` then deletes the "orphaned" one -- verified live
+        # (`CreateContainerConfigError: secret "langfuse-s3" not found`).
+        # Plain inline values avoid that chicken-and-egg entirely, matching
+        # this file's existing style for every other credential above.
+        s3:
+          auth:
+            rootUser: "minio"
+            rootPassword: "langfuse-minio-password"
+
+  destination:
+    name: "in-cluster"
+    namespace: langfuse
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

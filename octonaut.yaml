@@ -1,0 +1,124 @@
+# Deploy kubernetes via k3s (which installs a bundled containerd).
+# $ limactl start --param pwd=$(pwd) ./octonaut.yaml
+# $ limactl shell octonaut kubectl
+#
+# It can be accessed from the host by exporting the kubeconfig file;
+# the ports are already forwarded automatically by lima:
+#
+# $ export KUBECONFIG=$(limactl list octonaut --format 'unix://{{.Dir}}/copied-from-guest/kubeconfig.yaml')
+# $ kubectl get no
+# NAME       STATUS   ROLES                  AGE   VERSION
+# lima-octonaut   Ready    control-plane,master   69s   v1.21.1+k3s1
+
+minimumLimaVersion: 2.0.0
+
+base: template:_images/ubuntu-lts
+
+cpus: 4
+memory: "16GiB"
+
+mounts:
+  - location: "~"
+  - location: "{{.Param.pwd}}"
+    mountPoint: "/opt/octonaut"
+    writable: true
+
+# containerd is managed by k3s, not by Lima, so the values are set to false here.
+containerd:
+  system: false
+  user: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/sh
+      if [ ! -d /var/lib/rancher/k3s ]; then
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --write-kubeconfig-mode 644" sh -
+      fi
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      command -v buildah >/dev/null 2>&1 && exit 0
+      sudo apt update && sudo apt -y install buildah entr
+      kubectl create namespace argocd
+      kubectl apply -n argocd --server-side=true --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+      kubectl patch -n argocd configmap argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
+      kubectl patch -n argocd deployment argocd-repo-server --patch-file /opt/octonaut/clusters/dev/patch.yaml
+      kubectl apply -n argocd -f /opt/octonaut/clusters/dev/apps.yaml
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      sudo cp -f /opt/octonaut/scripts/k3s-image-build /usr/local/bin/k3s-image-build
+      sudo cp -f /opt/octonaut/scripts/k3s-image-watch /usr/local/bin/k3s-image-watch
+      sudo cp -f /opt/octonaut/systemd/build-agent.service /etc/systemd/system/build-agent.service
+      sudo cp -f /opt/octonaut/systemd/build-operator.service /etc/systemd/system/build-operator.service
+      sudo chmod +x /usr/local/bin/k3s-image-build
+      sudo chmod +x /usr/local/bin/k3s-image-watch
+      sudo systemctl daemon-reload
+      sudo systemctl enable --now build-agent.service
+      sudo systemctl enable --now build-operator.service
+
+probes:
+  - script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until test -f /etc/rancher/k3s/k3s.yaml; do sleep 3; done"; then
+          echo >&2 "k3s is not running yet"
+          exit 1
+      fi
+    hint: |
+      The k3s kubeconfig file has not yet been created.
+      Run "limactl shell k3s sudo journalctl -u k3s" to check the log.
+      If that is still empty, check the bottom of the log at "/var/log/cloud-init-output.log".
+
+  - script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until command -v buildah; do sleep 3; done"; then
+          echo >&2 "Buildah is not installed yet"
+          exit 1
+      fi
+    hint: |
+      Buildah has not yet been installed.
+      Check the bottom of the log at "/var/log/cloud-init-output.log".
+
+  - script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until command -v entr; do sleep 3; done"; then
+          echo >&2 "Entr is not installed yet"
+          exit 1
+      fi
+    hint: |
+      Entr has not yet been installed.
+      Check the bottom of the log at "/var/log/cloud-init-output.log".
+
+  - script: |
+      #!/bin/bash
+      kubectl wait \
+        --for=condition=available \
+        --timeout=180s \
+        --namespace argocd \
+        deployment/argocd-server
+    hint: |
+      ArgoCD has not yet been installed.
+      Check the bottom of the log at "/var/log/cloud-init-output.log".
+
+copyToHost:
+  - guest: "/etc/rancher/k3s/k3s.yaml"
+    host: "{{.Dir}}/copied-from-guest/kubeconfig.yaml"
+    deleteOnStop: true
+
+message: |
+  To run `kubectl` on the host (assumes kubectl is installed), run the following commands:
+  ------
+  export KUBECONFIG="{{.Dir}}/copied-from-guest/kubeconfig.yaml"
+  kubectl ...
+  ------
+
+param:
+  pwd: ""

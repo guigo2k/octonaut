@@ -6,15 +6,15 @@
 FROM python:3.12-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
-COPY agent/pyproject.toml agent/uv.lock ./
+COPY pyproject.toml uv.lock ./
 # Two-pass sync: deps only first (cacheable across source-only changes), then
 # the project itself once src/ is present -- `uv sync` before src/ exists
 # would fail to build the `agent` wheel (pyproject.toml declares
 # packages = ["src/agent"]).
 RUN uv sync --frozen --no-dev --no-install-project
-COPY agent/src ./src
+COPY src ./src
 RUN uv sync --frozen --no-dev
-COPY agent/skills ./skills
+COPY skills ./skills
 RUN uv run python -c "from agent.memory import embed; embed('warm up')"
 
 # --- final stage: runtime image with the venv + the Kraken CLI on PATH + the

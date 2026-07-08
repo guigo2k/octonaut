@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SRC_DIR="${SRC_DIR:-/opt/k3s-image-build/context}"
+IMAGE_NAME="${IMAGE_NAME:-local/agent:dev}"
+OUT_DIR="${OUT_DIR:-/var/lib/rancher/k3s/agent/images}"
+
+if [ ! -d "${SRC_DIR}" ]; then
+  echo "Source directory does not exist: ${SRC_DIR}"
+  exit 1
+fi
+
+if [ ! -f "${SRC_DIR}/Dockerfile" ]; then
+  echo "Missing Dockerfile at ${SRC_DIR}/Dockerfile"
+  exit 1
+fi
+
+mkdir -p "${OUT_DIR}"
+
+SAFE_IMAGE_NAME="$(printf '%s' "${IMAGE_NAME}" | tr '/:@' '----')"
+SRC_HASH="$(printf '%s' "${SRC_DIR}" | sha256sum | awk '{print substr($1, 1, 12)}')"
+
+OUT_FILE="${OUT_DIR}/${SAFE_IMAGE_NAME}.tar"
+TMP_FILE="${OUT_DIR}/.${SAFE_IMAGE_NAME}.${SRC_HASH}.$$.tmp"
+
+cleanup() {
+  rm -f "${TMP_FILE}"
+}
+
+trap cleanup EXIT INT TERM
+
+echo "Building ${IMAGE_NAME} from ${SRC_DIR}"
+
+buildah bud \
+  --format docker \
+  --tag "${IMAGE_NAME}" \
+  "${SRC_DIR}"
+
+echo "Exporting ${IMAGE_NAME} to temporary tarball: ${TMP_FILE}"
+
+buildah push \
+  "${IMAGE_NAME}" \
+  "docker-archive:${TMP_FILE}:${IMAGE_NAME}"
+
+chmod 0644 "${TMP_FILE}"
+
+echo "Atomically replacing K3s import tarball: ${OUT_FILE}"
+mv -f "${TMP_FILE}" "${OUT_FILE}"
+
+trap - EXIT
+
+echo "Done: ${OUT_FILE}"

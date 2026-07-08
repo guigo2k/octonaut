@@ -1,0 +1,27 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: octonaut-operator
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: 'file:///opt/octonaut'
+    path: operator/deploy
+    targetRevision: main
+    directory:
+      recurse: true
+      include: "{*.yaml,*.yml}"
+
+  destination:
+    name: "in-cluster"
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

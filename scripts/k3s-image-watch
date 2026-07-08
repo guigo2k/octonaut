@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SRC_DIR="${SRC_DIR:-/opt/k3s-image-build/context}"
+DEBOUNCE_SECONDS="${DEBOUNCE_SECONDS:-1}"
+
+if [ ! -d "${SRC_DIR}" ]; then
+  echo "Source directory does not exist: ${SRC_DIR}"
+  exit 1
+fi
+
+current_pid=""
+
+stop_current_build() {
+  if [ -n "${current_pid}" ] && kill -0 "${current_pid}" 2>/dev/null; then
+    echo "Stopping current build: ${current_pid}"
+    kill -TERM "-${current_pid}" 2>/dev/null || kill -TERM "${current_pid}" 2>/dev/null || true
+
+    for _ in $(seq 1 10); do
+      if ! kill -0 "${current_pid}" 2>/dev/null; then
+        break
+      fi
+      sleep 0.2
+    done
+
+    if kill -0 "${current_pid}" 2>/dev/null; then
+      echo "Build did not stop gracefully; killing: ${current_pid}"
+      kill -KILL "-${current_pid}" 2>/dev/null || kill -KILL "${current_pid}" 2>/dev/null || true
+    fi
+
+    wait "${current_pid}" 2>/dev/null || true
+  fi
+
+  current_pid=""
+}
+
+start_build() {
+  echo "Starting fresh build for ${SRC_DIR}"
+
+  # Start in a new process group, so Buildah child processes are also stopped.
+  setsid /usr/local/bin/k3s-image-build &
+  current_pid="$!"
+}
+
+cleanup() {
+  stop_current_build
+}
+
+trap cleanup EXIT INT TERM
+
+# Initial build
+start_build
+
+while true; do
+  find "${SRC_DIR}" \
+    -type f \
+    ! -path '*/.git/*' \
+    ! -path '*/.venv/*' \
+    ! -path '*/__pycache__/*' \
+    ! -path '*/.pytest_cache/*' \
+    ! -path '*/.ruff_cache/*' \
+    ! -path '*/dist/*' \
+    ! -path '*/build/*' \
+    ! -path '*/*.pyc' \
+    | sort \
+    | entr -d sh -c 'echo changed'
+
+  echo "Change detected in ${SRC_DIR}"
+
+  stop_current_build
+
+  # Small debounce so saves that touch multiple files trigger one rebuild.
+  sleep "${DEBOUNCE_SECONDS}"
+
+  start_build
+done

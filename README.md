@@ -121,10 +121,10 @@ kubectl create secret generic conservative-reptilian-secret \
 Then apply a `TradingAgent`:
 
 ```bash
-kubectl apply -f operator/examples/conservative-reptilian.yaml
+kubectl apply -f examples/conservative-reptilian.yaml
 ```
 
-`operator/examples/` has three ready-to-adapt CRs, one per strategy type and
+`examples/` has three ready-to-adapt CRs, one per strategy type and
 risk posture (each needs its own `<name>-secret`, same shape as above):
 
 | Example | Strategy | Ticker | Posture |
@@ -208,7 +208,7 @@ fixed:
    real traces now persist and are queryable via Langfuse's API/UI.
 
 **Model note:** `poolside/laguna-m.1:free` (the example model in
-`operator/examples/*.yaml`) intermittently 502s at the upstream provider on
+`examples/*.yaml`) intermittently 502s at the upstream provider on
 OpenRouter, specifically on tool-bound/structured-output requests (plain
 chat completions succeed) — an external provider issue, not a code issue.
 Live LLM reasoning was verified end-to-end with both `poolside/laguna-m.1:free`
@@ -234,8 +234,11 @@ misbehaving.
   schedule field; the strategy-type skill + prompt encode DCA/GRID/TWAP
   *behavior*, not cadence.
 - **kopf over Kubebuilder/client-go** for the operator — same language as the
-  agent, smallest footprint for a "simple operator." No ArgoCD/Helm layer for
-  the operator or its CRs; `kubectl apply` is the entire deploy story.
+  agent, smallest footprint for a "simple operator." The operator itself is
+  ArgoCD-managed (`clusters/dev/apps/octonaut-operator.yaml`, plain-directory
+  source over `operator/deploy/`); individual `TradingAgent` CRs are
+  deliberately kept `kubectl apply`-only — GitOps for the platform, not for
+  every trading strategy someone spins up.
 - **Standard `networking.k8s.io/v1` Ingress**, not a Traefik-specific
   `IngressRoute` — the CRD's `ingress.className/host/path/tls` fields are
   generic, so the operator renders a portable resource.
@@ -251,8 +254,9 @@ misbehaving.
   good next step.
 - **Multi-strategy / multiple tickers per agent** — intentionally out of
   scope; the config and CRD are both single-strategy by design here.
-- **GitOps.** The operator and its CRs are `kubectl apply`-only; wiring an
-  ArgoCD `Application` around `operator/deploy/` would be a small follow-up.
+- **GitOps for TradingAgent CRs.** Only the operator is ArgoCD-managed;
+  individual CRs stay `kubectl apply`-only by design (see above) — an
+  `ApplicationSet` per-CR would be the natural extension if that's wanted.
 - **Operator status detail.** `status.phase` is set to `Running` once
   resources are applied, not once the agent Pod is actually healthy — a
   proper implementation would watch the child Deployment's rollout status.

@@ -3,9 +3,9 @@
 FROM python:3.12-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
-COPY operator/pyproject.toml operator/uv.lock ./
+COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-COPY operator/src ./src
+COPY src ./src
 RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim
