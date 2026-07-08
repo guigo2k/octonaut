@@ -1,0 +1,50 @@
+---
+# Cloudflare's own cert-manager external issuer
+# (github.com/cloudflare/origin-ca-issuer) -- mints Cloudflare Origin CA
+# certificates directly via the Cloudflare API, no ACME challenge needed.
+#
+# Origin CA certs are only trusted by Cloudflare's edge, so this assumes
+# octonaut.orphic.sh (and its subdomains) are proxied through Cloudflare
+# (orange-clouded DNS). If that's not the case, swap tls.yaml's
+# ClusterOriginIssuer for a standard ACME ClusterIssuer instead.
+#
+# No Helm chart upstream -- sourcing its plain-manifest deploy/ directory
+# directly (crds/rbac/manifests), same pattern as operator/deploy.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: origin-ca-issuer
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+
+spec:
+  project: default
+
+  sources:
+    - repoURL: https://github.com/cloudflare/origin-ca-issuer
+      targetRevision: v0.14.4
+      path: deploy/crds
+      directory:
+        recurse: true
+    - repoURL: https://github.com/cloudflare/origin-ca-issuer
+      targetRevision: v0.14.4
+      path: deploy/rbac
+      directory:
+        recurse: true
+    - repoURL: https://github.com/cloudflare/origin-ca-issuer
+      targetRevision: v0.14.4
+      path: deploy/manifests
+      directory:
+        recurse: true
+
+  destination:
+    name: "in-cluster"
+    namespace: origin-ca-issuer
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

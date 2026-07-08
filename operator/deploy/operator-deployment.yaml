@@ -19,7 +19,7 @@ spec:
           image: octonaut-operator:dev
           imagePullPolicy: IfNotPresent
           env:
-            # Image the operator renders into every TradingAgent Deployment it
-            # reconciles -- not a CRD field, since the CRD doesn't expose one.
+            # Default image the operator renders into a TradingAgent
+            # Deployment when the CR doesn't set spec.image itself.
             - name: AGENT_IMAGE
               value: octonaut-agent:dev

@@ -1,10 +1,10 @@
 apiVersion: octonaut.rocks/v1alpha1
 kind: TradingAgent
 metadata:
-  name: aggressive-agent
+  name: conservative-agent
   namespace: default
 spec:
-  image: octonaut-agent:dev
+  image: ghcr.io/guigo2k/octonaut-agent:latest
 
   openrouter:
     model: "openai/gpt-4o-mini"
@@ -14,27 +14,30 @@ spec:
         key: openrouter-key
 
   strategy:
-    type: TWAP
-    ticker: SOLUSD
-    balance: 100000
+    type: DCA
+    ticker: BTCUSD
+    balance: 20000
     prompt: |
-      Work a TWAP execution into SOL/USD over the session, sized to
-      take advantage of momentum rather than just averaging in blindly.
-      Some risk of overpaying into a spike is acceptable in exchange for
-      not missing a real move. Never use leverage.
+      Dollar-cost-average into BTC/USD in small, regular increments.
+      Skip a buy entirely rather than chase a move. Never use leverage.
+      Preserve capital over squeezing out extra return.
 
   ingress:
     className: traefik
-    host: aggressive-agent.localhost
-    # path: /
+    host: conservative-agent.octonaut.orphic.sh
+  #   path: /
+    tls:
+      - secretName: conservative-agent-tls
+        hosts:
+          - conservative-agent.octonaut.orphic.sh
 
-  # resources:
-  #   requests:
-  #     cpu: 0.5
-  #     memory: 512Mi
-  #   limits:
-  #     cpu:
-  #     memory:
+  resources:
+    requests:
+      cpu: 2
+      memory: 2Gi
+    limits:
+      cpu: 4
+      memory: 4Gi
 
   langfuse:
     address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
@@ -50,5 +53,5 @@ spec:
   # postgres:
   #   databaseUrl:
   #     secretKeyRef:
-  #       name: aggressive-agent-db
+  #       name: conservative-agent-db
   #       key: DATABASE_URL

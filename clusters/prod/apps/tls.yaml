@@ -1,0 +1,154 @@
+---
+# Raw manifests, applied directly by the app-of-apps directory sync (same
+# pattern as routes.yaml) -- no separate Application/remote source needed.
+#
+# ClusterOriginIssuer comes from clusters/prod/apps/origin-ca-issuer.yaml
+# (Cloudflare's cert-manager external issuer) -- it mints Cloudflare Origin
+# CA certs directly via the Cloudflare API, cluster-scoped, so every
+# Certificate below shares this one issuer regardless of namespace. It
+# needs a `cloudflare-api-token` Secret (key: "key") in the
+# `origin-ca-issuer` namespace, created out-of-band (not committed here,
+# same convention as octonaut-secret/langfuse-secrets):
+#
+#   kubectl create secret generic cloudflare-api-token \
+#     --from-literal=key=$CLOUDFLARE_API_TOKEN \
+#     --namespace origin-ca-issuer
+#
+# Sync-wave is best-effort only: it orders resources *within* what the root
+# app-of-apps applies directly, it doesn't wait for a sibling Application
+# (coroot, langfuse) to finish creating its own namespace first. The
+# coroot/langfuse Certificates below are waved after those Applications'
+# own sync-waves so a clean-slate bootstrap has a head start, but ArgoCD's
+# selfHeal + periodic resync is what actually makes this converge if the
+# first attempt loses the race.
+apiVersion: cert-manager.k8s.cloudflare.com/v1
+kind: ClusterOriginIssuer
+metadata:
+  name: cloudflare-origin-issuer
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  requestType: OriginECC
+  auth:
+    tokenRef:
+      name: cloudflare-api-token
+      key: key
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-dashboard-tls
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: traefik-dashboard-tls
+  issuerRef:
+    group: cert-manager.k8s.cloudflare.com
+    kind: ClusterOriginIssuer
+    name: cloudflare-origin-issuer
+  dnsNames:
+    - traefik.octonaut.orphic.sh
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-dashboard-tls
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: argocd-dashboard-tls
+  issuerRef:
+    group: cert-manager.k8s.cloudflare.com
+    kind: ClusterOriginIssuer
+    name: cloudflare-origin-issuer
+  dnsNames:
+    - argocd.octonaut.orphic.sh
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: coroot-tls
+  namespace: coroot
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  secretName: coroot-tls
+  issuerRef:
+    group: cert-manager.k8s.cloudflare.com
+    kind: ClusterOriginIssuer
+    name: cloudflare-origin-issuer
+  dnsNames:
+    - coroot.octonaut.orphic.sh
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: langfuse-tls
+  namespace: langfuse
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  secretName: langfuse-tls
+  issuerRef:
+    group: cert-manager.k8s.cloudflare.com
+    kind: ClusterOriginIssuer
+    name: cloudflare-origin-issuer
+  dnsNames:
+    - langfuse.octonaut.orphic.sh
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: aggressive-agent-tls
+  namespace: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: aggressive-agent-tls
+  issuerRef:
+    group: cert-manager.k8s.cloudflare.com
+    kind: ClusterOriginIssuer
+    name: cloudflare-origin-issuer
+  dnsNames:
+    - aggressive-agent.octonaut.orphic.sh
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: conservative-agent-tls
+  namespace: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: conservative-agent-tls
+  issuerRef:
+    group: cert-manager.k8s.cloudflare.com
+    kind: ClusterOriginIssuer
+    name: cloudflare-origin-issuer
+  dnsNames:
+    - conservative-agent.octonaut.orphic.sh
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: moderate-agent-tls
+  namespace: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: moderate-agent-tls
+  issuerRef:
+    group: cert-manager.k8s.cloudflare.com
+    kind: ClusterOriginIssuer
+    name: cloudflare-origin-issuer
+  dnsNames:
+    - moderate-agent.octonaut.orphic.sh

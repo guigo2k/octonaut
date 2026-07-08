@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Lets an Application source this directory via `source.kustomize` (e.g. to
+# override the container image per-cluster with `source.kustomize.images`)
+# instead of `source.directory`. clusters/dev's octonaut-operator Application
+# still uses a plain `source.directory` sync and excludes this file, so dev
+# behavior is unchanged.
+resources:
+  - crd.yaml
+  - rbac.yaml
+  - operator-deployment.yaml

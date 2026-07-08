@@ -1,10 +1,10 @@
 apiVersion: octonaut.rocks/v1alpha1
 kind: TradingAgent
 metadata:
-  name: conservative-agent
+  name: moderate-agent
   namespace: default
 spec:
-  image: octonaut-agent:dev
+  image: ghcr.io/guigo2k/octonaut-agent:latest
 
   openrouter:
     model: "openai/gpt-4o-mini"
@@ -14,26 +14,31 @@ spec:
         key: openrouter-key
 
   strategy:
-    type: DCA
-    ticker: BTCUSD
-    balance: 20000
+    type: GRID
+    ticker: ETHUSD
+    balance: 50000
     prompt: |
-      Dollar-cost-average into BTC/USD in small, regular increments.
-      Skip a buy entirely rather than chase a move. Never use leverage.
-      Preserve capital over squeezing out extra return.
+      Run a grid on ETH/USD across a moderate range around the current price.
+      Some drawdown between grid levels is expected and fine.
+      Require reasonable, not exceptional, confirmation before entering.
+      Never use leverage.
 
   ingress:
     className: traefik
-    host: conservative-agent.localhost
+    host: moderate-agent.octonaut.orphic.sh
   #   path: /
+    tls:
+      - secretName: moderate-agent-tls
+        hosts:
+          - moderate-agent.octonaut.orphic.sh
 
-  # resources:
-  #   requests:
-  #     cpu: 0.5
-  #     memory: 512Mi
-  #   limits:
-  #     cpu:
-  #     memory:
+  resources:
+    requests:
+      cpu: 2
+      memory: 2Gi
+    limits:
+      cpu: 4
+      memory: 4Gi
 
   langfuse:
     address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
@@ -49,5 +54,5 @@ spec:
   # postgres:
   #   databaseUrl:
   #     secretKeyRef:
-  #       name: conservative-agent-db
+  #       name: moderate-agent-db
   #       key: DATABASE_URL

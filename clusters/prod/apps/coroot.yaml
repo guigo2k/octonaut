@@ -1,0 +1,80 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coroot-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://coroot.github.io/helm-charts
+    chart: coroot-operator
+    targetRevision: 0.9.7
+
+  destination:
+    name: "in-cluster"
+    namespace: coroot-operator
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coroot
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://coroot.github.io/helm-charts
+    chart: coroot-ce
+    targetRevision: 0.3.3
+
+    helm:
+      values: |
+        replicas: 3
+
+        ingress:
+          className: traefik
+          host: coroot.octonaut.orphic.sh
+          tls:
+            secretName: coroot-tls
+            hosts:
+              - coroot.octonaut.orphic.sh
+
+        resources:
+          requests:
+            cpu: 2
+            memory: 4Gi
+
+        clickhouse:
+          shards: 1
+          replicas: 3
+          storage:
+            size: 50Gi
+
+  destination:
+    name: "in-cluster"
+    namespace: coroot
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

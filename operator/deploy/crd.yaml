@@ -36,6 +36,8 @@ spec:
               type: object
               required: ["openrouter", "strategy"]
               properties:
+                image:
+                  type: string
                 openrouter:
                   type: object
                   required: ["model", "apiKey"]

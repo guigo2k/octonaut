@@ -4,6 +4,8 @@ metadata:
   name: moderate-agent
   namespace: default
 spec:
+  image: octonaut-agent:dev
+
   openrouter:
     model: "openai/gpt-4o-mini"
     apiKey:

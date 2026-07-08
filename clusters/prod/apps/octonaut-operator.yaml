@@ -1,0 +1,44 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: octonaut-operator
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: 'https://github.com/guigo2k/octonaut'
+    path: operator/deploy
+    targetRevision: main
+
+    # operator/deploy is the same environment-agnostic source dev uses
+    # (plain `source.directory` there) -- prod only needs the dev-local
+    # images swapped for the ones .github/workflows/{agent,operator}.yml
+    # publish to ghcr.io, plus network policy enforcement turned on, so it
+    # goes through Kustomize instead.
+    kustomize:
+      images:
+        - octonaut-operator=ghcr.io/guigo2k/octonaut-operator:latest
+      patches:
+        - target:
+            kind: Deployment
+            name: octonaut-operator
+          patch: |-
+            - op: replace
+              path: /spec/template/spec/containers/0/env/0/value
+              value: ghcr.io/guigo2k/octonaut-agent:latest
+            - op: replace
+              path: /spec/template/spec/containers/0/env/1/value
+              value: "true"
+
+  destination:
+    name: "in-cluster"
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

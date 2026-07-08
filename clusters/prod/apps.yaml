@@ -2,19 +2,18 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: octonaut-operator
+  name: app-of-apps
   namespace: argocd
 spec:
   project: default
 
   source:
-    repoURL: 'file:///opt/octonaut'
-    path: operator/deploy
+    repoURL: 'https://github.com/guigo2k/octonaut'
+    path: clusters/prod/apps
     targetRevision: main
     directory:
       recurse: true
       include: "{*.yaml,*.yml}"
-      exclude: "kustomization.yaml"
 
   destination:
     name: "in-cluster"

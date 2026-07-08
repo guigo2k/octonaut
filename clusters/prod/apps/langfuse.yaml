@@ -1,0 +1,136 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: langfuse
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://langfuse.github.io/langfuse-k8s
+    chart: langfuse
+    targetRevision: 1.5.37
+    helm:
+      values: |
+        # Every credential below (and the initial org/project/user/API key)
+        # comes from a "langfuse-secrets" Secret that must exist in this
+        # namespace before this Application syncs -- see
+        # scripts/langfuse-secrets (used as-is by clusters/dev's Lima
+        # provisioning) for what each key holds; prod needs the same keys
+        # populated by whatever means fits its bootstrap process.
+        langfuse:
+          salt:
+            secretKeyRef:
+              name: langfuse-secrets
+              key: salt
+
+          web:
+            replicas: 3
+            resources:
+              requests:
+                cpu: 1
+                memory: 2Gi
+
+          worker:
+            replicas: 3
+            resources:
+              requests:
+                cpu: 1
+                memory: 2Gi
+
+          nextauth:
+            url: https://langfuse.octonaut.orphic.sh
+            secret:
+              secretKeyRef:
+                name: langfuse-secrets
+                key: nextauth-secret
+
+          logging:
+            level: info
+            format: json
+
+          ingress:
+            enabled: true
+            className: traefik
+            hosts:
+              - host: langfuse.octonaut.orphic.sh
+                paths:
+                  - path: /
+                    pathType: ImplementationSpecific
+            tls:
+              enabled: true
+              secretName: langfuse-tls
+
+          # Headless init (https://langfuse.com/self-hosting/administration/headless-initialization):
+          # boots straight into a ready-to-use org/project/user instead of
+          # requiring a manual signup through the UI.
+          additionalEnv:
+            - name: LANGFUSE_INIT_ORG_ID
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-org-id}}
+            - name: LANGFUSE_INIT_ORG_NAME
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-org-name}}
+            - name: LANGFUSE_INIT_PROJECT_ID
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-id}}
+            - name: LANGFUSE_INIT_PROJECT_NAME
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-name}}
+            - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-public-key}}
+            - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-secret-key}}
+            - name: LANGFUSE_INIT_USER_EMAIL
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-user-email}}
+            - name: LANGFUSE_INIT_USER_NAME
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-user-name}}
+            - name: LANGFUSE_INIT_USER_PASSWORD
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-user-password}}
+
+        postgresql:
+          auth:
+            existingSecret: langfuse-secrets
+            secretKeys:
+              userPasswordKey: postgres-password
+              adminPasswordKey: postgres-password
+
+        clickhouse:
+          auth:
+            existingSecret: langfuse-secrets
+            existingSecretKey: clickhouse-password
+          replicaCount: 3
+          zookeeper:
+            enabled: true
+
+        redis:
+          auth:
+            existingSecret: langfuse-secrets
+            existingSecretPasswordKey: redis-password
+
+        # `minio.auth.*` bootstraps the bundled MinIO server's own root
+        # credentials; `s3.auth.*` is langfuse-web's own S3 *client* config
+        # (a separate value the chart otherwise leaves empty -- see
+        # templates/_helpers.tpl's langfuse.s3Env). Both need to point at the
+        # same underlying username/password, so both reference the same keys.
+        minio:
+          auth:
+            existingSecret: langfuse-secrets
+            rootUserSecretKey: minio-root-user
+            rootPasswordSecretKey: minio-root-password
+
+        s3:
+          auth:
+            existingSecret: langfuse-secrets
+            rootUserSecretKey: minio-root-user
+            rootPasswordSecretKey: minio-root-password
+
+  destination:
+    name: "in-cluster"
+    namespace: langfuse
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

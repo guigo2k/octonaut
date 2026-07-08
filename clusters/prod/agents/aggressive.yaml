@@ -4,7 +4,7 @@ metadata:
   name: aggressive-agent
   namespace: default
 spec:
-  image: octonaut-agent:dev
+  image: ghcr.io/guigo2k/octonaut-agent:latest
 
   openrouter:
     model: "openai/gpt-4o-mini"
@@ -25,16 +25,20 @@ spec:
 
   ingress:
     className: traefik
-    host: aggressive-agent.localhost
+    host: aggressive-agent.octonaut.orphic.sh
     # path: /
+    tls:
+      - secretName: aggressive-agent-tls
+        hosts:
+          - aggressive-agent.octonaut.orphic.sh
 
-  # resources:
-  #   requests:
-  #     cpu: 0.5
-  #     memory: 512Mi
-  #   limits:
-  #     cpu:
-  #     memory:
+  resources:
+    requests:
+      cpu: 2
+      memory: 2Gi
+    limits:
+      cpu: 4
+      memory: 4Gi
 
   langfuse:
     address: "http://langfuse-web.langfuse.svc.cluster.local:3000"

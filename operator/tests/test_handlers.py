@@ -4,6 +4,7 @@ import pytest
 from kubernetes.client.exceptions import ApiException
 
 from octonaut_operator.handlers import (
+    AGENT_IMAGE,
     Clients,
     _apply,
     _read_existing_password,
@@ -133,6 +134,7 @@ def test_apply_reraises_non_409_errors():
 class _RecordingApi:
     def __init__(self, secret=None):
         self.created = []
+        self.bodies = {}
         self._secret = secret
 
     def read_namespaced_secret(self, name, namespace):
@@ -145,7 +147,9 @@ class _RecordingApi:
             kind = item[len("create_namespaced_"):]
 
             def _create(namespace, body):
-                self.created.append((kind, body["metadata"]["name"]))
+                name = body["metadata"]["name"]
+                self.created.append((kind, name))
+                self.bodies[(kind, name)] = body
 
             return _create
         if item.startswith("patch_namespaced_"):
@@ -202,6 +206,31 @@ def test_reconcile_applies_ingress_when_configured():
     reconcile_tradingagent(spec, "minisaurus", "default", patch, clients=clients, owner=FAKE_OWNER)
 
     assert "ingress" in {k for k, _ in api.created}
+
+
+def test_reconcile_uses_default_agent_image_when_spec_omits_it():
+    api = _RecordingApi()
+    clients = Clients(core_v1=api, apps_v1=api, networking_v1=api)
+    patch = _FakePatch()
+
+    reconcile_tradingagent(MINIMAL_SPEC, "minisaurus", "default", patch, clients=clients,
+                             owner=FAKE_OWNER)
+
+    deployment = api.bodies[("deployment", "minisaurus")]
+    assert deployment["spec"]["template"]["spec"]["containers"][0]["image"] == AGENT_IMAGE
+
+
+def test_reconcile_uses_per_cr_image_override():
+    spec = {**MINIMAL_SPEC, "image": "ghcr.io/guigo2k/octonaut-agent:latest"}
+    api = _RecordingApi()
+    clients = Clients(core_v1=api, apps_v1=api, networking_v1=api)
+    patch = _FakePatch()
+
+    reconcile_tradingagent(spec, "minisaurus", "default", patch, clients=clients, owner=FAKE_OWNER)
+
+    deployment = api.bodies[("deployment", "minisaurus")]
+    assert deployment["spec"]["template"]["spec"]["containers"][0]["image"] == \
+        "ghcr.io/guigo2k/octonaut-agent:latest"
 
 
 def test_reconcile_skips_default_postgres_when_user_supplied():

@@ -90,7 +90,7 @@ def reconcile_tradingagent(
     )
 
     configmap = build_configmap(name, namespace, spec)
-    deployment = build_deployment(name, namespace, spec, image=AGENT_IMAGE,
+    deployment = build_deployment(name, namespace, spec, image=spec.get("image", AGENT_IMAGE),
                                     database_url_secret_ref=database_url_secret_ref)
     service = build_service(name, namespace)
     ingress = build_ingress(name, namespace, spec.get("ingress"))
