@@ -7,10 +7,55 @@ from agent.graph import (
     _equity_from_status,
     _holding_size,
     _price_from_ticker,
+    _proposal_or_hold,
     build_graph,
+    make_llm,
     solvency_guard,
 )
 from agent.kraken import KrakenResult
+
+# --------------------------------------------------------------------------- #
+# make_llm -- create_react_agent's structured-output node calls
+# ``model.with_structured_output(schema)`` with no explicit method, and
+# ChatOpenAI's own default ("json_schema", OpenAI's native Structured
+# Outputs API) isn't implemented correctly by many non-OpenAI models routed
+# through OpenRouter, even when those same models support plain tool-calling
+# fine. make_llm must force the method that's actually proven to work.
+# --------------------------------------------------------------------------- #
+
+
+def test_make_llm_forces_function_calling_structured_output():
+    llm = make_llm(model="some/model", api_key="k")
+    bound = llm.with_structured_output(Proposal).steps[0]
+    assert bound.kwargs["ls_structured_output_format"]["kwargs"]["method"] == "function_calling"
+    assert "response_format" not in bound.kwargs
+
+
+def test_make_llm_structured_output_method_still_overridable():
+    llm = make_llm(model="some/model", api_key="k")
+    bound = llm.with_structured_output(Proposal, method="json_schema").steps[0]
+    assert bound.kwargs["ls_structured_output_format"]["kwargs"]["method"] == "json_schema"
+
+
+# --------------------------------------------------------------------------- #
+# _proposal_or_hold -- some OpenRouter models, even when forced into
+# function_calling mode, sometimes still answer without calling the Proposal
+# tool at all; create_react_agent then hands back structured_response=None.
+# Defaulting to hold (rather than crashing the scheduled tick on
+# NoneType.model_dump) keeps the same fail-safe posture as solvency_guard.
+# --------------------------------------------------------------------------- #
+
+
+def test_proposal_or_hold_defaults_to_hold_when_model_returns_none():
+    proposal = _proposal_or_hold(None)
+    assert proposal.action == "hold"
+    assert proposal.size == Decimal("0")
+
+
+def test_proposal_or_hold_passes_through_a_real_proposal():
+    original = Proposal(action="buy", size=Decimal("1"), rationale="breakout")
+    assert _proposal_or_hold(original) is original
+
 
 # --------------------------------------------------------------------------- #
 # Pure parsing helpers (real shapes, verified against kraktopus/agent's own

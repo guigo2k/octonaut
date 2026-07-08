@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Literal, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
@@ -29,6 +30,26 @@ from agent.kraken import get_ohlc, get_ticker
 from agent.kraken import run_kraken as default_run_kraken
 
 _QUOTE_SUFFIXES = ("USDT", "USDC", "USD", "EUR")
+
+
+class _ReasoningModel(ChatOpenAI):
+    """create_react_agent's structured-output node calls
+    ``model.with_structured_output(schema)`` with no explicit ``method`` --
+    and ``ChatOpenAI``'s own default is ``"json_schema"`` (OpenAI's native
+    Structured Outputs API), which most non-OpenAI models routed through
+    OpenRouter don't actually implement, even though they support ordinary
+    tool-calling fine (proven by the ReAct loop's own tool calls working).
+    Force the method that's actually proven to work; still overridable.
+    """
+
+    def with_structured_output(self, schema=None, **kwargs):
+        kwargs.setdefault("method", "function_calling")
+        return super().with_structured_output(schema, **kwargs)
+
+
+def make_llm(*, model: str, api_key: str,
+             base_url: str = "https://openrouter.ai/api/v1") -> ChatOpenAI:
+    return _ReasoningModel(model=model, api_key=api_key, base_url=base_url)
 
 
 class Proposal(BaseModel):
@@ -107,6 +128,18 @@ def solvency_guard(
     return False, "unknown action"
 
 
+def _proposal_or_hold(proposal: Proposal | None) -> Proposal:
+    """Some OpenRouter models, even forced into function-calling mode, still
+    sometimes answer without calling the Proposal tool at all -- create_react_agent
+    then hands back ``structured_response=None``. Default to hold rather than
+    crash the scheduled tick: the same fail-safe posture as solvency_guard.
+    """
+    if proposal is None:
+        return Proposal(action="hold", size=Decimal("0"),
+                         rationale="model did not return a structured proposal; holding")
+    return proposal
+
+
 def make_reason_fn(llm):
     """Real reasoning step: a ReAct agent bound to read-only market-data tools,
     returning a structured ``Proposal`` as its final answer.
@@ -127,7 +160,7 @@ def make_reason_fn(llm):
         memory_note = "\n".join(state["memory"]) or "(no prior trade memory)"
         human = HumanMessage(content=f"Recalled trade memory:\n{memory_note}")
         result = react_agent.invoke({"messages": [system, human]}, config=config)
-        proposal: Proposal = result["structured_response"]
+        proposal = _proposal_or_hold(result["structured_response"])
         return {"proposal": proposal.model_dump(mode="json")}
 
     return reason_fn

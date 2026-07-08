@@ -17,12 +17,11 @@ import uuid
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from langchain_openai import ChatOpenAI
 
 from agent.api import create_app
 from agent.config import load_config
 from agent.db import init_db, make_engine
-from agent.graph import make_reason_fn
+from agent.graph import make_llm, make_reason_fn
 from agent.kraken import ensure_paper
 from agent.observability import configure_logging, uvicorn_log_config
 from agent.runner import run_once
@@ -44,10 +43,9 @@ def main() -> None:
     # before checking) for up to AGENT_TICK_SECONDS after every restart.
     ensure_paper(config.strategy.balance)
 
-    llm = ChatOpenAI(
+    llm = make_llm(
         model=os.environ["OPENROUTER_MODEL"],
         api_key=os.environ["OPENROUTER_API_KEY"],
-        base_url="https://openrouter.ai/api/v1",
     )
     reason_fn = make_reason_fn(llm)
 
