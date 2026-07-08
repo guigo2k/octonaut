@@ -14,7 +14,9 @@ from agent.skills import load_skills
 logger = logging.getLogger(__name__)
 
 
-def run_once(config: Config, engine, reason_fn, run_kraken_fn=default_run_kraken) -> dict:
+def run_once(
+    config: Config, engine, reason_fn, run_kraken_fn=default_run_kraken, session_id: str | None = None
+) -> dict:
     """One strategy tick: init paper account, recall memory, run the graph,
     then persist the ledger + trade memory if a trade actually executed.
 
@@ -34,7 +36,14 @@ def run_once(config: Config, engine, reason_fn, run_kraken_fn=default_run_kraken
 
     run_id = uuid.uuid4().hex[:12]
     handler = make_handler(run_id)
-    invoke_config = {"metadata": {"run_id": run_id}}
+    invoke_config = {"metadata": {
+        "run_id": run_id,
+        # Groups every tick of this strategy into one Langfuse Session (id
+        # supplied by main() and stable for the process's lifetime) under a
+        # per-strategy User, so both show up populated instead of empty.
+        "langfuse_session_id": session_id or run_id,
+        "langfuse_user_id": f"{strategy.ticker}-{strategy.type}",
+    }}
     if handler is not None:
         invoke_config["callbacks"] = [handler]
 

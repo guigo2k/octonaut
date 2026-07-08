@@ -128,3 +128,31 @@ def test_run_once_omits_callbacks_when_langfuse_not_configured(engine, monkeypat
 
     assert len(seen_configs) == 1
     assert seen_configs[0]["callbacks"].handlers == []
+
+
+def test_run_once_tags_trace_with_session_and_user_id(engine):
+    kraken_fn, _ = _stub_kraken()
+    seen_configs = []
+
+    def reason_fn(state, config=None):
+        seen_configs.append(config)
+        return {"proposal": {"action": "hold", "size": "0", "rationale": "x"}}
+
+    run_once(_config(), engine, reason_fn, run_kraken_fn=kraken_fn, session_id="sess-abc")
+
+    metadata = seen_configs[0]["metadata"]
+    assert metadata["langfuse_session_id"] == "sess-abc"
+    assert metadata["langfuse_user_id"] == "BTCUSD-GRID"
+
+
+def test_run_once_defaults_session_id_when_not_given(engine):
+    kraken_fn, _ = _stub_kraken()
+    seen_configs = []
+
+    def reason_fn(state, config=None):
+        seen_configs.append(config)
+        return {"proposal": {"action": "hold", "size": "0", "rationale": "x"}}
+
+    run_once(_config(), engine, reason_fn, run_kraken_fn=kraken_fn)
+
+    assert seen_configs[0]["metadata"]["langfuse_session_id"]

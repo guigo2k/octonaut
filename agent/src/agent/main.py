@@ -12,6 +12,7 @@ container's entrypoint (``python -m agent.main``).
 from __future__ import annotations
 
 import os
+import uuid
 
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -23,7 +24,7 @@ from agent.config import load_config
 from agent.db import init_db, make_engine
 from agent.graph import make_reason_fn
 from agent.kraken import ensure_paper
-from agent.observability import configure_logging
+from agent.observability import configure_logging, uvicorn_log_config
 from agent.runner import run_once
 
 # Strategy cadence isn't a config.yaml field (unlike a per-strategy cron in a
@@ -50,9 +51,13 @@ def main() -> None:
     )
     reason_fn = make_reason_fn(llm)
 
+    # One id per pod lifetime -- groups every tick this process runs into a
+    # single Langfuse Session instead of each tick showing up disconnected.
+    session_id = uuid.uuid4().hex[:12]
+
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
-        lambda: run_once(config, engine, reason_fn),
+        lambda: run_once(config, engine, reason_fn, session_id=session_id),
         IntervalTrigger(seconds=TICK_SECONDS),
     )
 
@@ -61,7 +66,7 @@ def main() -> None:
     # (before ``uvicorn.run``) would raise ``RuntimeError: no running event
     # loop`` from apscheduler's ``AsyncIOScheduler.start()``.
     app = create_app(engine, scheduler=scheduler)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=uvicorn_log_config())
 
 
 if __name__ == "__main__":
