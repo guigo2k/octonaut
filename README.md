@@ -49,6 +49,72 @@ held size vs. sell size) is the sole gate before anything is placed. "Never
 use leverage" is enforced structurally — no leverage/margin tool exists for
 the LLM to call, spot paper trading only.
 
+## Bootstrapping a local cluster
+
+`octonaut.yaml` is a self-contained Lima config — a fresh k3s + ArgoCD stack,
+independent of any other cluster. No manual image loading: two systemd units
+(`build-agent`/`build-operator`) watch `agent/` and `operator/` and
+rebuild+import each image on every save.
+
+```bash
+limactl start --name octonaut --param pwd=$(pwd) ./octonaut.yaml
+```
+
+Give it a couple of minutes for k3s, ArgoCD, and the first image builds to
+settle, then:
+
+```bash
+export KUBECONFIG=$(limactl list octonaut --format 'unix://{{.Dir}}/copied-from-guest/kubeconfig.yaml')
+kubectl get application -n argocd   # all should show Synced/Healthy
+```
+
+Three UIs come up on `*.localhost` (Traefik ingress, no `/etc/hosts` edits
+needed on macOS): `argocd.localhost`, `coroot.localhost`, `langfuse.localhost`.
+ArgoCD's admin password:
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+Only the operator itself is ArgoCD-managed (`clusters/dev/apps/
+octonaut-operator.yaml`); `TradingAgent` CRs are applied by hand — see
+"Deploying the example agents" below.
+
+### Setting up Langfuse
+
+Self-hosted Langfuse has no separate admin-bootstrap step — the first
+account you create becomes the instance's first user.
+
+1. Visit `http://langfuse.localhost` and sign up.
+2. Create an organization (any name), then a project inside it (e.g.
+   `octonaut`).
+3. **Settings → API Keys → Create new API key.** Copy the public key
+   (`pk-lf-...`) and secret key (`sk-lf-...`) now — the secret key is shown
+   exactly once.
+
+### Deploying the example agents
+
+All three `examples/*.yaml` CRs deploy into the `default` namespace and
+share one secret:
+
+```bash
+kubectl create secret generic octonaut-secret \
+  --from-literal=openrouter-key=sk-or-... \
+  --from-literal=langfuse-public-key=pk-lf-... \
+  --from-literal=langfuse-secret-key=sk-lf-... \
+  -n default
+
+kubectl apply -f examples/
+```
+
+Each provisions its own default Postgres+pgvector (none of the examples set
+`spec.postgres`). Watch them come up:
+
+```bash
+kubectl get tradingagent -n default
+kubectl get pods -n default
+```
+
 ## Running the agent standalone
 
 Requires the `kraken` CLI on `PATH` ([install](https://github.com/krakenfx/kraken-cli)) and a reachable Postgres with the `vector` extension available (`pgvector/pgvector:pg17` works).
@@ -102,7 +168,11 @@ uv run python -m agent.main
 `SIGTERM` (e.g. `kubectl delete pod`, or Ctrl-C) cancels every open paper
 order before the process exits.
 
-## Running the operator
+## Running the operator on an existing cluster
+
+Not using `octonaut.yaml`? Install the operator by hand instead (build/push
+`octonaut-agent`/`octonaut-operator` images to wherever your cluster can
+pull from first):
 
 ```bash
 kubectl apply -f operator/deploy/crd.yaml
@@ -110,22 +180,9 @@ kubectl apply -f operator/deploy/rbac.yaml
 kubectl apply -f operator/deploy/operator-deployment.yaml   # set AGENT_IMAGE first
 ```
 
-Create the referenced secret (never commit real keys):
-
-```bash
-kubectl create secret generic conservative-reptilian-secret \
-  --from-literal=openrouter-key=sk-... \
-  -n default
-```
-
-Then apply a `TradingAgent`:
-
-```bash
-kubectl apply -f examples/conservative-reptilian.yaml
-```
-
-`examples/` has three ready-to-adapt CRs, one per strategy type and
-risk posture (each needs its own `<name>-secret`, same shape as above):
+Then follow "Setting up Langfuse" / "Deploying the example agents" above —
+`examples/` has three ready-to-adapt CRs, one per strategy type and risk
+posture, all in the `default` namespace:
 
 | Example | Strategy | Ticker | Posture |
 |---|---|---|---|

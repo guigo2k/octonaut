@@ -2,12 +2,13 @@ apiVersion: octonaut.rocks/v1alpha1
 kind: TradingAgent
 metadata:
   name: conservative-reptilian
+  namespace: default
 spec:
   openrouter:
     model: "poolside/laguna-m.1:free"
     apiKey:
       secretKeyRef:
-        name: conservative-reptilian-secret
+        name: octonaut-secret
         key: openrouter-key
 
   strategy:
@@ -36,11 +37,11 @@ spec:
     address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
     publicKey:
       secretKeyRef:
-        name: conservative-reptilian-secret
+        name: octonaut-secret
         key: langfuse-public-key
     secretKey:
       secretKeyRef:
-        name: conservative-reptilian-secret
+        name: octonaut-secret
         key: langfuse-secret-key
 
   # postgres:
