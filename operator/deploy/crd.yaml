@@ -1,0 +1,129 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tradingagents.krakosaurus.rocks
+spec:
+  group: krakosaurus.rocks
+  scope: Namespaced
+  names:
+    kind: TradingAgent
+    listKind: TradingAgentList
+    plural: tradingagents
+    singular: tradingagent
+    shortNames: ["ta"]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Strategy
+          type: string
+          jsonPath: .spec.strategy.type
+        - name: Ticker
+          type: string
+          jsonPath: .spec.strategy.ticker
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          properties:
+            spec:
+              type: object
+              required: ["openrouter", "strategy"]
+              properties:
+                openrouter:
+                  type: object
+                  required: ["model", "apiKey"]
+                  properties:
+                    model:
+                      type: string
+                    apiKey:
+                      type: object
+                      required: ["secretKeyRef"]
+                      properties:
+                        secretKeyRef:
+                          type: object
+                          required: ["name", "key"]
+                          properties:
+                            name: { type: string }
+                            key: { type: string }
+                strategy:
+                  type: object
+                  required: ["type", "ticker", "balance", "prompt"]
+                  properties:
+                    type:
+                      type: string
+                      enum: ["DCA", "GRID", "TWAP"]
+                    ticker:
+                      type: string
+                    balance:
+                      type: number
+                    prompt:
+                      type: string
+                ingress:
+                  type: object
+                  required: ["className", "host"]
+                  properties:
+                    className: { type: string }
+                    host: { type: string }
+                    path: { type: string, default: "/" }
+                    tls:
+                      type: array
+                      items:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                resources:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                langfuse:
+                  type: object
+                  required: ["address", "publicKey", "secretKey"]
+                  properties:
+                    address:
+                      type: string
+                    publicKey:
+                      type: object
+                      required: ["secretKeyRef"]
+                      properties:
+                        secretKeyRef:
+                          type: object
+                          required: ["name", "key"]
+                          properties:
+                            name: { type: string }
+                            key: { type: string }
+                    secretKey:
+                      type: object
+                      required: ["secretKeyRef"]
+                      properties:
+                        secretKeyRef:
+                          type: object
+                          required: ["name", "key"]
+                          properties:
+                            name: { type: string }
+                            key: { type: string }
+                postgres:
+                  type: object
+                  required: ["databaseUrl"]
+                  properties:
+                    databaseUrl:
+                      type: object
+                      required: ["secretKeyRef"]
+                      properties:
+                        secretKeyRef:
+                          type: object
+                          required: ["name", "key"]
+                          properties:
+                            name: { type: string }
+                            key: { type: string }
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string

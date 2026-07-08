@@ -1,0 +1,50 @@
+apiVersion: krakosaurus.rocks/v1alpha1
+kind: TradingAgent
+metadata:
+  name: minisaurus
+spec:
+  openrouter:
+    model: "poolside/laguna-m.1:free"
+    apiKey:
+      secretKeyRef:
+        name: minisaurus-secret
+        key: openrouter-key
+
+  strategy:
+    type: GRID
+    ticker: BTCUSD
+    balance: 50000
+    prompt: |
+      Trade BTC/USD conservatively.
+      Require strong confirmation before entering.
+      Never use leverage.
+
+  # ingress:
+  #   className: traefik
+  #   host: minisaurus.localhost
+  #   path: /
+
+  # resources:
+  #   requests:
+  #     cpu: 0.5
+  #     memory: 512Mi
+  #   limits:
+  #     cpu:
+  #     memory:
+
+  langfuse:
+    address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
+    publicKey:
+      secretKeyRef:
+        name: minisaurus-secret
+        key: langfuse-public-key
+    secretKey:
+      secretKeyRef:
+        name: minisaurus-secret
+        key: langfuse-secret-key
+
+  # postgres:
+  #   databaseUrl:
+  #     secretKeyRef:
+  #       name: minisaurus-db
+  #       key: DATABASE_URL

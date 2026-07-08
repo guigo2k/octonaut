@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: krakosaurus-operator
+  namespace: krakosaurus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: krakosaurus-operator
+  template:
+    metadata:
+      labels:
+        app: krakosaurus-operator
+    spec:
+      serviceAccountName: krakosaurus-operator
+      containers:
+        - name: operator
+          image: krakosaurus-operator:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            # Image the operator renders into every TradingAgent Deployment it
+            # reconciles -- not a CRD field, since the CRD doesn't expose one.
+            - name: AGENT_IMAGE
+              value: minisaurus-agent:dev

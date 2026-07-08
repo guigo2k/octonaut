@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: krakosaurus
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: krakosaurus-operator
+  namespace: krakosaurus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: krakosaurus-operator
+rules:
+  - apiGroups: ["krakosaurus.rocks"]
+    resources: ["tradingagents"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["krakosaurus.rocks"]
+    resources: ["tradingagents/status"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "secrets", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: krakosaurus-operator
+subjects:
+  - kind: ServiceAccount
+    name: krakosaurus-operator
+    namespace: krakosaurus
+roleRef:
+  kind: ClusterRole
+  name: krakosaurus-operator
+  apiGroup: rbac.authorization.k8s.io
