@@ -13,4 +13,4 @@ COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:${PATH}"
 WORKDIR /app
 
-CMD ["kopf", "run", "-A", "--standalone", "-m", "krakosaurus_operator.handlers"]
+CMD ["kopf", "run", "-A", "--standalone", "-m", "octonaut_operator.handlers"]

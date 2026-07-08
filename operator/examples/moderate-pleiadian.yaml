@@ -1,27 +1,28 @@
-apiVersion: krakosaurus.rocks/v1alpha1
+apiVersion: octonaut.rocks/v1alpha1
 kind: TradingAgent
 metadata:
-  name: minisaurus
+  name: moderate-pleiadian
 spec:
   openrouter:
     model: "poolside/laguna-m.1:free"
     apiKey:
       secretKeyRef:
-        name: minisaurus-secret
+        name: moderate-pleiadian-secret
         key: openrouter-key
 
   strategy:
     type: GRID
-    ticker: BTCUSD
+    ticker: ETHUSD
     balance: 50000
     prompt: |
-      Trade BTC/USD conservatively.
-      Require strong confirmation before entering.
+      Run a grid on ETH/USD across a moderate range around the current price.
+      Some drawdown between grid levels is expected and fine.
+      Require reasonable, not exceptional, confirmation before entering.
       Never use leverage.
 
   # ingress:
   #   className: traefik
-  #   host: minisaurus.localhost
+  #   host: moderate-pleiadian.localhost
   #   path: /
 
   # resources:
@@ -36,15 +37,15 @@ spec:
     address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
     publicKey:
       secretKeyRef:
-        name: minisaurus-secret
+        name: moderate-pleiadian-secret
         key: langfuse-public-key
     secretKey:
       secretKeyRef:
-        name: minisaurus-secret
+        name: moderate-pleiadian-secret
         key: langfuse-secret-key
 
   # postgres:
   #   databaseUrl:
   #     secretKeyRef:
-  #       name: minisaurus-db
+  #       name: moderate-pleiadian-db
   #       key: DATABASE_URL

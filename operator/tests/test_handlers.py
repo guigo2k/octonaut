@@ -3,7 +3,7 @@ import base64
 import pytest
 from kubernetes.client.exceptions import ApiException
 
-from krakosaurus_operator.handlers import (
+from octonaut_operator.handlers import (
     Clients,
     _apply,
     _read_existing_password,
@@ -159,7 +159,7 @@ class _FakePatch:
 
 
 FAKE_OWNER = {
-    "apiVersion": "krakosaurus.rocks/v1alpha1",
+    "apiVersion": "octonaut.rocks/v1alpha1",
     "kind": "TradingAgent",
     "metadata": {"name": "minisaurus", "namespace": "default", "uid": "fake-uid"},
 }

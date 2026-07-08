@@ -1,0 +1,50 @@
+apiVersion: octonaut.rocks/v1alpha1
+kind: TradingAgent
+metadata:
+  name: conservative-reptilian
+spec:
+  openrouter:
+    model: "poolside/laguna-m.1:free"
+    apiKey:
+      secretKeyRef:
+        name: conservative-reptilian-secret
+        key: openrouter-key
+
+  strategy:
+    type: DCA
+    ticker: BTCUSD
+    balance: 20000
+    prompt: |
+      Dollar-cost-average into BTC/USD in small, regular increments.
+      Skip a buy entirely rather than chase a move. Never use leverage.
+      Preserve capital over squeezing out extra return.
+
+  # ingress:
+  #   className: traefik
+  #   host: conservative-reptilian.localhost
+  #   path: /
+
+  # resources:
+  #   requests:
+  #     cpu: 0.5
+  #     memory: 512Mi
+  #   limits:
+  #     cpu:
+  #     memory:
+
+  langfuse:
+    address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
+    publicKey:
+      secretKeyRef:
+        name: conservative-reptilian-secret
+        key: langfuse-public-key
+    secretKey:
+      secretKeyRef:
+        name: conservative-reptilian-secret
+        key: langfuse-secret-key
+
+  # postgres:
+  #   databaseUrl:
+  #     secretKeyRef:
+  #       name: conservative-reptilian-db
+  #       key: DATABASE_URL

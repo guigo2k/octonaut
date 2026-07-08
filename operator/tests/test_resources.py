@@ -1,6 +1,6 @@
 import yaml
 
-from krakosaurus_operator.resources import (
+from octonaut_operator.resources import (
     build_configmap,
     build_deployment,
     build_ingress,

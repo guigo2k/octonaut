@@ -1,6 +1,6 @@
 """Default in-cluster Postgres+pgvector, provisioned when ``spec.postgres`` is
-omitted from the ``TradingAgent`` CR (the sample ``minisaurus`` CR in the task
-omits it entirely, so this is required for that example to actually deploy).
+omitted from the ``TradingAgent`` CR (each example CR under ``examples/``
+omits it, so this is required for those examples to actually deploy).
 
 Same posture as the reference agent's "reuse a small bundled Postgres"
 default: single replica, small PVC, not production-sized.

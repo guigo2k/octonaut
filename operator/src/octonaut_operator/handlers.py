@@ -16,8 +16,8 @@ import kopf
 from kubernetes import client, config as k8s_config
 from kubernetes.client.exceptions import ApiException
 
-from krakosaurus_operator.postgres import build_default_postgres
-from krakosaurus_operator.resources import (
+from octonaut_operator.postgres import build_default_postgres
+from octonaut_operator.resources import (
     build_configmap,
     build_deployment,
     build_ingress,
@@ -26,7 +26,7 @@ from krakosaurus_operator.resources import (
 
 logger = logging.getLogger(__name__)
 
-AGENT_IMAGE = os.environ.get("AGENT_IMAGE", "minisaurus-agent:dev")
+AGENT_IMAGE = os.environ.get("AGENT_IMAGE", "octonaut-agent:dev")
 
 
 @dataclass
@@ -124,8 +124,8 @@ def reconcile_tradingagent(
     patch.status["phase"] = "Running"
 
 
-@kopf.on.create("krakosaurus.rocks", "v1alpha1", "tradingagents")
-@kopf.on.update("krakosaurus.rocks", "v1alpha1", "tradingagents")
-@kopf.on.resume("krakosaurus.rocks", "v1alpha1", "tradingagents")
+@kopf.on.create("octonaut.rocks", "v1alpha1", "tradingagents")
+@kopf.on.update("octonaut.rocks", "v1alpha1", "tradingagents")
+@kopf.on.resume("octonaut.rocks", "v1alpha1", "tradingagents")
 def on_reconcile(spec, name, namespace, patch, body, **_):
     reconcile_tradingagent(spec, name, namespace, patch, clients=_real_clients(), owner=body)

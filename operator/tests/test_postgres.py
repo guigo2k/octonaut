@@ -1,4 +1,4 @@
-from krakosaurus_operator.postgres import build_default_postgres
+from octonaut_operator.postgres import build_default_postgres
 
 
 def test_database_url_points_at_the_provisioned_service():

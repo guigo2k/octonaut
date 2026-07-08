@@ -47,7 +47,7 @@ def create_app(engine, *, scheduler=None, run_kraken_fn=default_run_kraken) -> F
             logger.info("cancelled all open orders before shutdown",
                         extra={"cancelled_order_ids": cancelled})
 
-    app = FastAPI(title="minisaurus agent", lifespan=lifespan)
+    app = FastAPI(title="octonaut agent", lifespan=lifespan)
 
     @app.get("/health")
     def health():

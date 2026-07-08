@@ -1,0 +1,51 @@
+apiVersion: octonaut.rocks/v1alpha1
+kind: TradingAgent
+metadata:
+  name: aggressive-grey
+spec:
+  openrouter:
+    model: "poolside/laguna-m.1:free"
+    apiKey:
+      secretKeyRef:
+        name: aggressive-grey-secret
+        key: openrouter-key
+
+  strategy:
+    type: TWAP
+    ticker: SOLUSD
+    balance: 100000
+    prompt: |
+      Work a TWAP execution into SOL/USD over the session, sized to
+      take advantage of momentum rather than just averaging in blindly.
+      Some risk of overpaying into a spike is acceptable in exchange for
+      not missing a real move. Never use leverage.
+
+  # ingress:
+  #   className: traefik
+  #   host: aggressive-grey.localhost
+  #   path: /
+
+  # resources:
+  #   requests:
+  #     cpu: 0.5
+  #     memory: 512Mi
+  #   limits:
+  #     cpu:
+  #     memory:
+
+  langfuse:
+    address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
+    publicKey:
+      secretKeyRef:
+        name: aggressive-grey-secret
+        key: langfuse-public-key
+    secretKey:
+      secretKeyRef:
+        name: aggressive-grey-secret
+        key: langfuse-secret-key
+
+  # postgres:
+  #   databaseUrl:
+  #     secretKeyRef:
+  #       name: aggressive-grey-db
+  #       key: DATABASE_URL

@@ -1,4 +1,4 @@
-# Krakosaurus
+# Octonaut
 
 A minimal AI trading agent (`agent/`) and the Kubernetes operator that
 deploys it (`operator/`). Fictional use case: a single always-on agent that
@@ -113,7 +113,7 @@ kubectl apply -f operator/deploy/operator-deployment.yaml   # set AGENT_IMAGE fi
 Create the referenced secret (never commit real keys):
 
 ```bash
-kubectl create secret generic minisaurus-secret \
+kubectl create secret generic conservative-reptilian-secret \
   --from-literal=openrouter-key=sk-... \
   -n default
 ```
@@ -121,14 +121,23 @@ kubectl create secret generic minisaurus-secret \
 Then apply a `TradingAgent`:
 
 ```bash
-kubectl apply -f operator/samples/minisaurus.yaml
+kubectl apply -f operator/examples/conservative-reptilian.yaml
 ```
 
+`operator/examples/` has three ready-to-adapt CRs, one per strategy type and
+risk posture (each needs its own `<name>-secret`, same shape as above):
+
+| Example | Strategy | Ticker | Posture |
+|---|---|---|---|
+| `conservative-reptilian.yaml` | DCA | BTCUSD | small, regular buys; skip rather than chase |
+| `moderate-pleiadian.yaml` | GRID | ETHUSD | grid around current price, moderate drawdown tolerance |
+| `aggressive-grey.yaml` | TWAP | SOLUSD | momentum-aware execution, tolerates overpaying into a spike |
+
 The CRD's `ingress` / `resources` / `langfuse` / `postgres` blocks are all
-optional (see the commented-out examples in `operator/samples/minisaurus.yaml`).
-Leaving `postgres` unset makes the operator provision its own small
-Postgres+pgvector `Deployment`/`PVC`/`Service`/`Secret` for you — required for
-the sample above to deploy anything at all, since it omits `postgres`.
+optional (see the commented-out examples in each file). Leaving `postgres`
+unset makes the operator provision its own small Postgres+pgvector
+`Deployment`/`PVC`/`Service`/`Secret` for you — required for these examples to
+deploy anything at all, since none of them set `postgres`.
 
 ## Testing
 
@@ -157,7 +166,10 @@ Confirmed live:
   confirmed via captured shutdown logs (`cancelled_order_ids`).
 - Deleting the `TradingAgent` CR garbage-collected every owned resource
   (Deployments, Services, ConfigMap, default-Postgres Secret/PVC) via owner
-  references, leaving only the independently-created `minisaurus-secret`.
+  references, leaving only the independently-created `<name>-secret`.
+- Real Langfuse traces are visible for live ticks, correctly tagged with a
+  per-pod-lifetime `sessionId` and a per-strategy `userId` (see "Design
+  decisions" below).
 
 Three real bugs were found and fixed by this live pass (not caught by unit
 tests, since they depend on the real CLI/SDK behavior):
@@ -175,21 +187,33 @@ tests, since they depend on the real CLI/SDK behavior):
    tick** (up to `AGENT_TICK_SECONDS` after boot), not at startup — fixed by
    calling `ensure_paper` eagerly in `main()`.
 
-**Not fully verified live:** Langfuse trace *persistence*. The SDK
-successfully authenticates and submits real trace data to the existing
-Langfuse instance (confirmed via Langfuse's own logs matching our
-project/public-key), but Langfuse's own ingestion pipeline fails to persist
-it: `CredentialsProviderError: Could not load credentials from any providers`
-when uploading to its S3/MinIO backend. This is a pre-existing configuration
-gap in the shared Langfuse deployment (`kraktopus/deploy/dev/apps/
-langfuse.yaml`'s MinIO wiring), not in this repo's code.
+A second live pass, after real traffic surfaced three more issues, found and
+fixed:
 
-**Model note:** the CRD's example model, `poolside/laguna-m.1` (both the paid
-and `:free` variants — `operator/samples/minisaurus.yaml` currently pins
-`:free`), currently 502s at the upstream provider on OpenRouter — an external
-outage, not a code issue. Live LLM reasoning was verified end-to-end with
-`openai/gpt-4o-mini` instead; swap `spec.openrouter.model` back once the
-provider recovers.
+4. **Uvicorn's own `uvicorn`/`uvicorn.access`/`uvicorn.error` loggers
+   attached their own plain-text handlers**, bypassing `configure_logging`'s
+   JSON formatter entirely — health-check access logs showed up as bare text
+   lines interleaved with our structured ones. Fixed with
+   `observability.uvicorn_log_config()`, passed to `uvicorn.run(...,
+   log_config=...)`, which points those loggers back at the root logger.
+5. **Langfuse's `Sessions`/`Users` views were empty** — nothing tagged a
+   trace's `sessionId`/`userId`. Fixed by generating one session id per pod
+   lifetime (`main.py`) and tagging every trace's user as `<ticker>-<type>`
+   (`runner.run_once`), via the SDK's `langfuse_session_id`/`langfuse_user_id`
+   metadata keys.
+6. **Langfuse trace persistence itself** was previously blocked by a
+   pre-existing gap in the shared Langfuse deployment's S3/MinIO credential
+   wiring (`kraktopus/deploy/dev/apps/langfuse.yaml`) — fixed upstream in that
+   repo (`s3.auth.rootUser`/`rootPassword`, see that repo's commit history);
+   real traces now persist and are queryable via Langfuse's API/UI.
+
+**Model note:** `poolside/laguna-m.1:free` (the example model in
+`operator/examples/*.yaml`) intermittently 502s at the upstream provider on
+OpenRouter, specifically on tool-bound/structured-output requests (plain
+chat completions succeed) — an external provider issue, not a code issue.
+Live LLM reasoning was verified end-to-end with both `poolside/laguna-m.1:free`
+and `openai/gpt-4o-mini`; swap `spec.openrouter.model` if the former is
+misbehaving.
 
 ## Design decisions & simplifications
 
