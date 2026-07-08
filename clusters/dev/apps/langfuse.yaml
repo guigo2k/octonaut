@@ -15,22 +15,22 @@ spec:
     helm:
       values: |
         # Every credential below (and the initial org/project/user/API key)
-        # comes from the "langfuse-generated-secrets" Secret that
-        # scripts/generate-langfuse-secrets creates during Lima provisioning
+        # comes from the "langfuse-secrets" Secret that
+        # scripts/langfuse-secrets creates during Lima provisioning
         # -- generated once per cluster, never committed. See that script for
         # what each key holds, and the README's "Setting up Langfuse" section
         # for how to read the generated login/API key back out.
         langfuse:
           salt:
             secretKeyRef:
-              name: langfuse-generated-secrets
+              name: langfuse-secrets
               key: salt
 
           nextauth:
             url: http://langfuse.localhost
             secret:
               secretKeyRef:
-                name: langfuse-generated-secrets
+                name: langfuse-secrets
                 key: nextauth-secret
 
           logging:
@@ -51,34 +51,34 @@ spec:
           # requiring a manual signup through the UI.
           additionalEnv:
             - name: LANGFUSE_INIT_ORG_ID
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-org-id}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-org-id}}
             - name: LANGFUSE_INIT_ORG_NAME
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-org-name}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-org-name}}
             - name: LANGFUSE_INIT_PROJECT_ID
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-id}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-id}}
             - name: LANGFUSE_INIT_PROJECT_NAME
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-name}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-name}}
             - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-public-key}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-public-key}}
             - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-project-secret-key}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-project-secret-key}}
             - name: LANGFUSE_INIT_USER_EMAIL
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-user-email}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-user-email}}
             - name: LANGFUSE_INIT_USER_NAME
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-user-name}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-user-name}}
             - name: LANGFUSE_INIT_USER_PASSWORD
-              valueFrom: {secretKeyRef: {name: langfuse-generated-secrets, key: init-user-password}}
+              valueFrom: {secretKeyRef: {name: langfuse-secrets, key: init-user-password}}
 
         postgresql:
           auth:
-            existingSecret: langfuse-generated-secrets
+            existingSecret: langfuse-secrets
             secretKeys:
               userPasswordKey: postgres-password
               adminPasswordKey: postgres-password
 
         clickhouse:
           auth:
-            existingSecret: langfuse-generated-secrets
+            existingSecret: langfuse-secrets
             existingSecretKey: clickhouse-password
           replicaCount: 1
           zookeeper:
@@ -86,7 +86,7 @@ spec:
 
         redis:
           auth:
-            existingSecret: langfuse-generated-secrets
+            existingSecret: langfuse-secrets
             existingSecretPasswordKey: redis-password
 
         # `minio.auth.*` bootstraps the bundled MinIO server's own root
@@ -96,13 +96,13 @@ spec:
         # same underlying username/password, so both reference the same keys.
         minio:
           auth:
-            existingSecret: langfuse-generated-secrets
+            existingSecret: langfuse-secrets
             rootUserSecretKey: minio-root-user
             rootPasswordSecretKey: minio-root-password
 
         s3:
           auth:
-            existingSecret: langfuse-generated-secrets
+            existingSecret: langfuse-secrets
             rootUserSecretKey: minio-root-user
             rootPasswordSecretKey: minio-root-password
 

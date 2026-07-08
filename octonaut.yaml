@@ -46,7 +46,7 @@ provision:
       kubectl apply -n argocd --server-side=true --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
       kubectl patch -n argocd configmap argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
       kubectl patch -n argocd deployment argocd-repo-server --patch-file /opt/octonaut/clusters/dev/patch.yaml
-      bash /opt/octonaut/scripts/generate-langfuse-secrets
+      bash /opt/octonaut/scripts/langfuse-secrets
       kubectl apply -n argocd -f /opt/octonaut/clusters/dev/apps.yaml
 
   - mode: system
@@ -55,8 +55,8 @@ provision:
       set -eux -o pipefail
       sudo cp -f /opt/octonaut/scripts/k3s-image-build /usr/local/bin/k3s-image-build
       sudo cp -f /opt/octonaut/scripts/k3s-image-watch /usr/local/bin/k3s-image-watch
-      sudo cp -f /opt/octonaut/systemd/build-agent.service /etc/systemd/system/build-agent.service
-      sudo cp -f /opt/octonaut/systemd/build-operator.service /etc/systemd/system/build-operator.service
+      sudo cp -f /opt/octonaut/scripts/build-agent.service /etc/systemd/system/build-agent.service
+      sudo cp -f /opt/octonaut/scripts/build-operator.service /etc/systemd/system/build-operator.service
       sudo chmod +x /usr/local/bin/k3s-image-build
       sudo chmod +x /usr/local/bin/k3s-image-watch
       sudo systemctl daemon-reload

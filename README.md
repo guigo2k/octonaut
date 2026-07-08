@@ -19,10 +19,10 @@ Two independent, separately-deployable pieces:
 ## Architecture
 
 ```
-┌─────────────────── agent pod ───────────────────┐
+┌─────────────────── agent pod ────────────────────┐
 │ FastAPI (health/trades/positions/metrics)        │
 │  + APScheduler tick -> runner.run_once           │
-│                                                   │
+│                                                  │
 │  runner.run_once:                                │
 │   ensure_paper -> load_skills (deterministic:    │
 │   Core + Market Data + strategy-type skill)      │
@@ -30,9 +30,9 @@ Two independent, separately-deployable pieces:
 │   -> graph.build_graph (LangGraph):              │
 │        gather (kraken ticker/status/balance)     │
 │        -> reason (OpenRouter LLM, ReAct agent    │
-│           w/ read-only ticker/ohlc tools)         │
+│           w/ read-only ticker/ohlc tools)        │
 │        -> solvency guard (deterministic, no LLM) │
-│        -> execute (kraken paper buy/sell)         │
+│        -> execute (kraken paper buy/sell)        │
 │   -> persist Trade (ledger) + TradeMemory (RAG)  │
 └──────────┬────────────────────────────────────────┘
            │ DATABASE_URL (postgres+pgvector: ledger + trade memory)
@@ -83,8 +83,8 @@ octonaut-operator.yaml`); `TradingAgent` CRs are applied by hand — see
 ### Setting up Langfuse
 
 Fully automated — no signup, no clicking through Settings → API Keys.
-`scripts/generate-langfuse-secrets` runs during provisioning (before ArgoCD
-syncs anything) and creates one `langfuse-generated-secrets` Secret in the
+`scripts/langfuse-secrets` runs during provisioning (before ArgoCD
+syncs anything) and creates one `langfuse-secrets` Secret in the
 `langfuse` namespace holding random passwords for every backing service
 *and* a ready-made org/project/user/API-key pair, via Langfuse's
 [headless initialization](https://langfuse.com/self-hosting/administration/headless-initialization)
@@ -98,10 +98,10 @@ To retrieve the generated login (to use the UI) or API keys (to point the
 agent's `LANGFUSE_*` env vars / a `TradingAgent`'s `spec.langfuse` at):
 
 ```bash
-kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-user-email}' | base64 -d; echo
-kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-user-password}' | base64 -d; echo
-kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-public-key}' | base64 -d; echo
-kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-secret-key}' | base64 -d; echo
+kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-email}' | base64 -d; echo
+kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-user-password}' | base64 -d; echo
+kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-project-public-key}' | base64 -d; echo
+kubectl get secret langfuse-secrets -n langfuse -o jsonpath='{.data.init-project-secret-key}' | base64 -d; echo
 ```
 
 Note: the Secret is only generated once per cluster (on a namespace that
@@ -111,19 +111,18 @@ volume won't retroactively create a second org/project.
 
 ### Deploying the example agents
 
-All three `examples/*.yaml` CRs deploy into the `default` namespace and
-share one secret. `openrouter-key` is the one credential that's genuinely
-external (bring your own [OpenRouter](https://openrouter.ai/) key); the two
-Langfuse values come straight out of the generated secret above:
+All three `clusters/dev/agents/*.yaml` CRs deploy into the `default`
+namespace. They share two secrets: `octonaut-secret` (your OpenRouter key —
+the one credential that's genuinely external) and `langfuse-secret` (the
+Langfuse project keys, already created for you by
+`scripts/langfuse-secrets` during provisioning):
 
 ```bash
 kubectl create secret generic octonaut-secret \
-  --from-literal=openrouter-key=sk-or-... \
-  --from-literal=langfuse-public-key="$(kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-public-key}' | base64 -d)" \
-  --from-literal=langfuse-secret-key="$(kubectl get secret langfuse-generated-secrets -n langfuse -o jsonpath='{.data.init-project-secret-key}' | base64 -d)" \
-  -n default
+  --from-literal=openrouter-key=$OPENROUTER_API_KEY \
+  --namespace default
 
-kubectl apply -f examples/
+kubectl apply -f clusters/dev/agents/
 ```
 
 Each provisions its own default Postgres+pgvector (none of the examples set
@@ -200,14 +199,14 @@ kubectl apply -f operator/deploy/operator-deployment.yaml   # set AGENT_IMAGE fi
 ```
 
 Then follow "Setting up Langfuse" / "Deploying the example agents" above —
-`examples/` has three ready-to-adapt CRs, one per strategy type and risk
-posture, all in the `default` namespace:
+`clusters/dev/agents/` has three ready-to-adapt CRs, one per strategy type
+and risk posture, all in the `default` namespace:
 
 | Example | Strategy | Ticker | Posture |
 |---|---|---|---|
-| `conservative-reptilian.yaml` | DCA | BTCUSD | small, regular buys; skip rather than chase |
-| `moderate-pleiadian.yaml` | GRID | ETHUSD | grid around current price, moderate drawdown tolerance |
-| `aggressive-grey.yaml` | TWAP | SOLUSD | momentum-aware execution, tolerates overpaying into a spike |
+| `conservative.yaml` | DCA | BTCUSD | small, regular buys; skip rather than chase |
+| `moderate.yaml` | GRID | ETHUSD | grid around current price, moderate drawdown tolerance |
+| `aggressive.yaml` | TWAP | SOLUSD | momentum-aware execution, tolerates overpaying into a spike |
 
 The CRD's `ingress` / `resources` / `langfuse` / `postgres` blocks are all
 optional (see the commented-out examples in each file). Leaving `postgres`
@@ -284,7 +283,7 @@ fixed:
    real traces now persist and are queryable via Langfuse's API/UI.
 
 **Model note:** `poolside/laguna-m.1:free` (the example model in
-`examples/*.yaml`) intermittently 502s at the upstream provider on
+`clusters/dev/agents/*.yaml`) intermittently 502s at the upstream provider on
 OpenRouter, specifically on tool-bound/structured-output requests (plain
 chat completions succeed) — an external provider issue, not a code issue.
 Live LLM reasoning was verified end-to-end with both `poolside/laguna-m.1:free`

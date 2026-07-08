@@ -1,7 +1,7 @@
 apiVersion: octonaut.rocks/v1alpha1
 kind: TradingAgent
 metadata:
-  name: moderate-pleiadian
+  name: conservative-agent
   namespace: default
 spec:
   openrouter:
@@ -12,18 +12,17 @@ spec:
         key: openrouter-key
 
   strategy:
-    type: GRID
-    ticker: ETHUSD
-    balance: 50000
+    type: DCA
+    ticker: BTCUSD
+    balance: 20000
     prompt: |
-      Run a grid on ETH/USD across a moderate range around the current price.
-      Some drawdown between grid levels is expected and fine.
-      Require reasonable, not exceptional, confirmation before entering.
-      Never use leverage.
+      Dollar-cost-average into BTC/USD in small, regular increments.
+      Skip a buy entirely rather than chase a move. Never use leverage.
+      Preserve capital over squeezing out extra return.
 
-  # ingress:
-  #   className: traefik
-  #   host: moderate-pleiadian.localhost
+  ingress:
+    className: traefik
+    host: conservative-agent.localhost
   #   path: /
 
   # resources:
@@ -38,15 +37,15 @@ spec:
     address: "http://langfuse-web.langfuse.svc.cluster.local:3000"
     publicKey:
       secretKeyRef:
-        name: octonaut-secret
+        name: langfuse-secret
         key: langfuse-public-key
     secretKey:
       secretKeyRef:
-        name: octonaut-secret
+        name: langfuse-secret
         key: langfuse-secret-key
 
   # postgres:
   #   databaseUrl:
   #     secretKeyRef:
-  #       name: moderate-pleiadian-db
+  #       name: conservative-agent-db
   #       key: DATABASE_URL
