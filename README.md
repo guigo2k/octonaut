@@ -1,0 +1,234 @@
+# Krakosaurus
+
+A minimal AI trading agent (`agent/`) and the Kubernetes operator that
+deploys it (`operator/`). Fictional use case: a single always-on agent that
+trades one ticker under one strategy (DCA / GRID / TWAP) in Kraken's paper
+mode, reasoning with an LLM over live market data and its own trade memory,
+never placing an order the LLM proposes without a deterministic solvency
+check in between.
+
+Two independent, separately-deployable pieces:
+
+- **`agent/`** — the trading agent itself. Runs standalone with three env
+  vars; no Kubernetes required.
+- **`operator/`** — a [kopf](https://kopf.readthedocs.io/)-based operator
+  that reconciles a `TradingAgent` custom resource into a running agent
+  (Deployment, Service, ConfigMap, optional Ingress, and a default
+  Postgres+pgvector instance if you don't bring your own).
+
+## Architecture
+
+```
+┌─────────────────── agent pod ───────────────────┐
+│ FastAPI (health/trades/positions/metrics)        │
+│  + APScheduler tick -> runner.run_once           │
+│                                                   │
+│  runner.run_once:                                │
+│   ensure_paper -> load_skills (deterministic:    │
+│   Core + Market Data + strategy-type skill)      │
+│   -> recall trade memory (pgvector, semantic)    │
+│   -> graph.build_graph (LangGraph):              │
+│        gather (kraken ticker/status/balance)     │
+│        -> reason (OpenRouter LLM, ReAct agent    │
+│           w/ read-only ticker/ohlc tools)         │
+│        -> solvency guard (deterministic, no LLM) │
+│        -> execute (kraken paper buy/sell)         │
+│   -> persist Trade (ledger) + TradeMemory (RAG)  │
+└──────────┬────────────────────────────────────────┘
+           │ DATABASE_URL (postgres+pgvector: ledger + trade memory)
+           │ OPENROUTER_* (LLM)
+           │ LANGFUSE_* (optional: traces)
+           ▼
+     kraken CLI (subprocess, paper mode) · Postgres
+```
+
+**Safety invariant:** the order-placement tool is only ever called by the
+deterministic `execute` step, never by the LLM. The LLM can propose a trade
+(action/size/rationale); a pure `solvency_guard` function (balance vs. cost,
+held size vs. sell size) is the sole gate before anything is placed. "Never
+use leverage" is enforced structurally — no leverage/margin tool exists for
+the LLM to call, spot paper trading only.
+
+## Running the agent standalone
+
+Requires the `kraken` CLI on `PATH` ([install](https://github.com/krakenfx/kraken-cli)) and a reachable Postgres with the `vector` extension available (`pgvector/pgvector:pg17` works).
+
+Required env vars:
+
+| Var | Purpose |
+|---|---|
+| `OPENROUTER_MODEL` | Model id passed to OpenRouter, e.g. `poolside/laguna-m.1` |
+| `OPENROUTER_API_KEY` | Your [OpenRouter](https://openrouter.ai/) API key |
+| `DATABASE_URL` | `postgresql+psycopg://user:pass@host:5432/db` |
+
+Optional (all three must be set together to enable Langfuse tracing):
+
+| Var | Purpose |
+|---|---|
+| `LANGFUSE_ADDRESS` | Langfuse instance base URL |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key |
+
+Also: `AGENT_CONFIG` (default `/etc/agent/config.yaml`), `AGENT_TICK_SECONDS`
+(default `300`).
+
+`config.yaml`:
+
+```yaml
+strategy:
+  type: GRID       # DCA | GRID | TWAP
+  ticker: BTCUSD
+  balance: 50000   # starting paper balance, passed to `kraken paper init --balance`
+  prompt: |
+    Trade BTC/USD conservatively.
+    Require strong confirmation before entering.
+    Never use leverage.
+logging:
+  level: INFO
+  format: json      # or text
+```
+
+```bash
+cd agent
+uv sync
+AGENT_CONFIG=./config.yaml \
+DATABASE_URL=postgresql+psycopg://postgres:pw@localhost:55433/postgres \
+OPENROUTER_MODEL=poolside/laguna-m.1 \
+OPENROUTER_API_KEY=sk-... \
+uv run python -m agent.main
+```
+
+`GET /health`, `GET /trades`, `GET /positions`, `GET /metrics` on `:8000`.
+`SIGTERM` (e.g. `kubectl delete pod`, or Ctrl-C) cancels every open paper
+order before the process exits.
+
+## Running the operator
+
+```bash
+kubectl apply -f operator/deploy/crd.yaml
+kubectl apply -f operator/deploy/rbac.yaml
+kubectl apply -f operator/deploy/operator-deployment.yaml   # set AGENT_IMAGE first
+```
+
+Create the referenced secret (never commit real keys):
+
+```bash
+kubectl create secret generic minisaurus-secret \
+  --from-literal=openrouter-key=sk-... \
+  -n default
+```
+
+Then apply a `TradingAgent`:
+
+```bash
+kubectl apply -f operator/samples/minisaurus.yaml
+```
+
+The CRD's `ingress` / `resources` / `langfuse` / `postgres` blocks are all
+optional (see the commented-out examples in `operator/samples/minisaurus.yaml`).
+Leaving `postgres` unset makes the operator provision its own small
+Postgres+pgvector `Deployment`/`PVC`/`Service`/`Secret` for you — required for
+the sample above to deploy anything at all, since it omits `postgres`.
+
+## Testing
+
+```bash
+cd agent && uv run pytest        # 61 tests; DB-backed tests need a reachable
+                                    # Postgres+pgvector (TEST_DATABASE_URL env,
+                                    # defaults to localhost:55433) or they skip
+cd operator && uv run pytest     # 29 tests; all pure/fake-client, no cluster
+```
+
+## Live verification (Lima `krak`, kraktopus's existing k3s cluster)
+
+Deployed for real: operator installed via `kubectl apply`, images built with
+`buildah` inside the Lima VM and imported into k3s's containerd, sample
+`TradingAgent` reconciled into a running agent + default Postgres+pgvector.
+Confirmed live:
+
+- `/health` `/trades` `/positions` `/metrics` all serve real data.
+- A real OpenRouter LLM call (via `openai/gpt-4o-mini` — see model note below)
+  reasoned over live `kraken ticker`/`ohlc` tool calls and correctly recalled
+  an earlier trade from pgvector trade memory in its own rationale.
+- A forced `buy` proposal round-tripped through the solvency guard into a
+  real `kraken paper buy` order, visible in `/trades` and independently
+  confirmed via `kraken paper status`.
+- `SIGTERM` (pod delete) cancelled a real resting limit order before exit,
+  confirmed via captured shutdown logs (`cancelled_order_ids`).
+- Deleting the `TradingAgent` CR garbage-collected every owned resource
+  (Deployments, Services, ConfigMap, default-Postgres Secret/PVC) via owner
+  references, leaving only the independently-created `minisaurus-secret`.
+
+Three real bugs were found and fixed by this live pass (not caught by unit
+tests, since they depend on the real CLI/SDK behavior):
+
+1. **Langfuse was never actually wired into LLM calls.** `make_handler`/
+   `current_trace_id` existed and were tested, but nothing attached the
+   callback handler to the graph invocation — LangGraph only forwards
+   `config` (callbacks/metadata) to node functions that declare a second
+   `config` parameter. Fixed in `graph.make_reason_fn` + `runner.run_once`.
+2. **`kraken paper orders`'s real shape** is `{"count", "mode",
+   "open_orders": [...]}`, not a bare list — `close_all_open_orders` silently
+   cancelled nothing against the real CLI. Fixed, with a regression test
+   using the real shape.
+3. **The paper account was only initialized lazily on the first scheduler
+   tick** (up to `AGENT_TICK_SECONDS` after boot), not at startup — fixed by
+   calling `ensure_paper` eagerly in `main()`.
+
+**Not fully verified live:** Langfuse trace *persistence*. The SDK
+successfully authenticates and submits real trace data to the existing
+Langfuse instance (confirmed via Langfuse's own logs matching our
+project/public-key), but Langfuse's own ingestion pipeline fails to persist
+it: `CredentialsProviderError: Could not load credentials from any providers`
+when uploading to its S3/MinIO backend. This is a pre-existing configuration
+gap in the shared Langfuse deployment (`kraktopus/deploy/dev/apps/
+langfuse.yaml`'s MinIO wiring), not in this repo's code.
+
+**Model note:** the CRD's example model, `poolside/laguna-m.1` (both the paid
+and `:free` variants — `operator/samples/minisaurus.yaml` currently pins
+`:free`), currently 502s at the upstream provider on OpenRouter — an external
+outage, not a code issue. Live LLM reasoning was verified end-to-end with
+`openai/gpt-4o-mini` instead; swap `spec.openrouter.model` back once the
+provider recovers.
+
+## Design decisions & simplifications
+
+- **RAG is deterministic for skills, semantic only for trade memory.** Core +
+  Market Data + the one strategy-type skill are a fixed lookup by
+  `strategy.type` (there's nothing to embed — selection is already 1:1).
+  pgvector is used only to recall past trade rationales by similarity, the
+  one place free-text search actually helps.
+- **Local embeddings** (`fastembed`, `BAAI/bge-small-en-v1.5`, baked into the
+  Docker image at build time, `HF_HUB_OFFLINE=1` at runtime) rather than a
+  second required API key — OpenRouter doesn't serve embeddings.
+- **No deterministic risk-preset subsystem.** Nothing in the config or CRD
+  schema calls for one; safety is structural (no leverage tool exists) plus
+  one inline solvency check, not a configurable constraint matrix.
+- **No Alembic.** One small schema, idempotent `CREATE TABLE IF NOT EXISTS`
+  at startup (`agent.db.init_db`) instead of migration tooling.
+- **One fixed tick interval**, not per-strategy cron — the config has no
+  schedule field; the strategy-type skill + prompt encode DCA/GRID/TWAP
+  *behavior*, not cadence.
+- **kopf over Kubebuilder/client-go** for the operator — same language as the
+  agent, smallest footprint for a "simple operator." No ArgoCD/Helm layer for
+  the operator or its CRs; `kubectl apply` is the entire deploy story.
+- **Standard `networking.k8s.io/v1` Ingress**, not a Traefik-specific
+  `IngressRoute` — the CRD's `ingress.className/host/path/tls` fields are
+  generic, so the operator renders a portable resource.
+
+## Known gaps / what I'd do with more time
+
+- **Kraken CLI shapes.** Ticker/status/balance parsing (`agent/graph.py`) and
+  the "list + cancel all open orders" SIGTERM path (`agent/kraken.py`) are
+  built from the real CLI's documented examples, not exercised against a live
+  paper account yet — first thing to confirm in live verification.
+- **Reasoning quality** is observed via Langfuse traces, not unit-asserted —
+  same tradeoff the reference agent made; a small eval harness would be a
+  good next step.
+- **Multi-strategy / multiple tickers per agent** — intentionally out of
+  scope; the config and CRD are both single-strategy by design here.
+- **GitOps.** The operator and its CRs are `kubectl apply`-only; wiring an
+  ArgoCD `Application` around `operator/deploy/` would be a small follow-up.
+- **Operator status detail.** `status.phase` is set to `Running` once
+  resources are applied, not once the agent Pod is actually healthy — a
+  proper implementation would watch the child Deployment's rollout status.
